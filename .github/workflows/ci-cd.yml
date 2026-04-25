@@ -156,13 +156,25 @@ jobs:
       - name: Deploy RabbitMQ
         run: kubectl apply -f k8s/rabbitmq-deployment.yaml
 
+      # MIGRATION: Install Gateway API CRDs (required for AGC + ALB Controller).
+      # Gateway API replaces the legacy Ingress API. These CRDs define the
+      # Gateway and HTTPRoute resources used in web-deployment.yaml.
+      - name: Install Gateway API CRDs
+        run: |
+          kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.2.1/standard-install.yaml
+
       - name: Deploy application
         env:
           TAG: ${{ needs.build-images.outputs.image_tag }}
           ACR: ${{ steps.details.outputs.acr_login_server }}
         run: |
+          # Get AGC resource ID for Gateway API annotation
+          AGC_ID=$(az network traffic-controller list --resource-group rg-${{ env.AZURE_ENV_NAME }} --query '[0].id' -o tsv 2>/dev/null || echo "")
           for manifest in k8s/api-deployment.yaml k8s/worker-deployment.yaml k8s/web-deployment.yaml; do
-            sed -e "s|__ACR_LOGIN_SERVER__|$ACR|g" -e "s|__TAG__|$TAG|g" "$manifest" | kubectl apply -f -
+            sed -e "s|__ACR_LOGIN_SERVER__|$ACR|g" \
+                -e "s|__TAG__|$TAG|g" \
+                -e "s|__AGC_RESOURCE_ID__|$AGC_ID|g" \
+                "$manifest" | kubectl apply -f -
           done
 
       - name: Apply network policies

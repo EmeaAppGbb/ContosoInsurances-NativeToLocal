@@ -1,6 +1,7 @@
 // ============================================================================
 // Networking Module — VNet, Subnets, NSGs, Private DNS Zones
-// All services run in a private VNet. Only Application Gateway has a public IP.
+// All services run in a private VNet. Only AGC (Application Gateway for Containers)
+// has a public-facing frontend. MIGRATION: Replaced App Gateway WAF v2 with AGC.
 // ============================================================================
 
 @description('Azure region')
@@ -24,7 +25,10 @@ var subnets = {
   aks: { name: 'snet-aks', prefix: '10.0.0.0/20' }               // /20 = 4096 IPs for AKS pods (Azure CNI)
   sql: { name: 'snet-sql', prefix: '10.0.16.0/24' }              // /24 for SQL MI or private endpoints
   privateEndpoints: { name: 'snet-private-endpoints', prefix: '10.0.17.0/24' }
-  appGw: { name: 'snet-appgw', prefix: '10.0.18.0/24' }          // Application Gateway requires dedicated subnet
+  // MIGRATION: Renamed from snet-appgw to snet-agc. Application Gateway WAF v2
+  // was retired; replaced by Application Gateway for Containers (AGC).
+  // AGC requires subnet delegation to Microsoft.ServiceNetworking/trafficControllers.
+  agc: { name: 'snet-agc', prefix: '10.0.18.0/24' }             // AGC requires dedicated delegated subnet
 }
 
 // ---------------------------------------------------------------------------
@@ -152,29 +156,19 @@ resource nsgPrivateEndpoints 'Microsoft.Network/networkSecurityGroups@2024-01-01
   }
 }
 
-resource nsgAppGw 'Microsoft.Network/networkSecurityGroups@2024-01-01' = {
-  name: '${abbrs.networkSecurityGroup}appgw-${resourceToken}'
+// MIGRATION: NSG updated for AGC. Application Gateway required GatewayManager
+// inbound on ports 65200-65535. AGC does NOT require those ports — it uses
+// the ALB Controller inside the cluster. NSG allows HTTP/HTTPS from internet.
+resource nsgAgc 'Microsoft.Network/networkSecurityGroups@2024-01-01' = {
+  name: '${abbrs.networkSecurityGroup}agc-${resourceToken}'
   location: location
   tags: tags
   properties: {
     securityRules: [
       {
-        name: 'AllowGatewayManager'
-        properties: {
-          priority: 100
-          direction: 'Inbound'
-          access: 'Allow'
-          protocol: 'Tcp'
-          sourcePortRange: '*'
-          destinationPortRange: '65200-65535'
-          sourceAddressPrefix: 'GatewayManager'
-          destinationAddressPrefix: '*'
-        }
-      }
-      {
         name: 'AllowHttpsInbound'
         properties: {
-          priority: 110
+          priority: 100
           direction: 'Inbound'
           access: 'Allow'
           protocol: 'Tcp'
@@ -187,7 +181,7 @@ resource nsgAppGw 'Microsoft.Network/networkSecurityGroups@2024-01-01' = {
       {
         name: 'AllowHttpInbound'
         properties: {
-          priority: 120
+          priority: 110
           direction: 'Inbound'
           access: 'Allow'
           protocol: 'Tcp'
@@ -198,6 +192,9 @@ resource nsgAppGw 'Microsoft.Network/networkSecurityGroups@2024-01-01' = {
         }
       }
       {
+        // MIGRATION: Removed AllowGatewayManager rule (ports 65200-65535).
+        // App Gateway WAF v2 required this for Azure control plane management.
+        // AGC does not need it — the ALB Controller runs inside the K8s cluster.
         name: 'DenyAllInbound'
         properties: {
           priority: 4096
@@ -250,10 +247,22 @@ resource vnet 'Microsoft.Network/virtualNetworks@2024-01-01' = {
         }
       }
       {
-        name: subnets.appGw.name
+        // MIGRATION: Subnet renamed from snet-appgw to snet-agc.
+        // Added delegation to Microsoft.ServiceNetworking/trafficControllers
+        // which is REQUIRED for AGC association. Without this delegation,
+        // the AGC association will fail to deploy.
+        name: subnets.agc.name
         properties: {
-          addressPrefix: subnets.appGw.prefix
-          networkSecurityGroup: { id: nsgAppGw.id }
+          addressPrefix: subnets.agc.prefix
+          networkSecurityGroup: { id: nsgAgc.id }
+          delegations: [
+            {
+              name: 'agc-delegation'
+              properties: {
+                serviceName: 'Microsoft.ServiceNetworking/trafficControllers'
+              }
+            }
+          ]
         }
       }
     ]
@@ -322,7 +331,7 @@ output vnetName string = vnet.name
 output aksSubnetId string = vnet.properties.subnets[0].id
 output sqlSubnetId string = vnet.properties.subnets[1].id
 output privateEndpointsSubnetId string = vnet.properties.subnets[2].id
-output appGwSubnetId string = vnet.properties.subnets[3].id
+output agcSubnetId string = vnet.properties.subnets[3].id
 output sqlPrivateDnsZoneId string = sqlPrivateDnsZone.id
 output acrPrivateDnsZoneId string = acrPrivateDnsZone.id
 output kvPrivateDnsZoneId string = kvPrivateDnsZone.id

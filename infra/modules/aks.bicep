@@ -1,7 +1,13 @@
 // ============================================================================
 // AKS Module — Azure Kubernetes Service Cluster
 // Private cluster with system + user node pools, workload identity, and
-// Container Insights. All pods run in the AKS subnet (Azure CNI).
+// Azure Monitor. ALB Controller addon for AGC integration.
+//
+// MIGRATION (April 2026):
+//   - K8s version: 1.30 → 1.35 (1.30 deprecated March 2026)
+//   - API version: 2024-06-02-preview → 2024-09-01 (latest stable)
+//   - Monitoring: omsagent addon → Azure Monitor managed addon
+//   - Ingress: AGIC removed → ALB Controller addon for AGC (Gateway API)
 // ============================================================================
 
 @description('Azure region')
@@ -42,7 +48,8 @@ var clusterName = '${abbrs.aksCluster}${resourceToken}'
 // AKS Cluster
 // ---------------------------------------------------------------------------
 
-resource aks 'Microsoft.ContainerService/managedClusters@2024-06-02-preview' = {
+// MIGRATION: API version updated from 2024-06-02-preview to 2024-09-01 (stable)
+resource aks 'Microsoft.ContainerService/managedClusters@2024-09-01' = {
   name: clusterName
   location: location
   tags: tags
@@ -97,15 +104,35 @@ resource aks 'Microsoft.ContainerService/managedClusters@2024-06-02-preview' = {
       }
     ]
 
-    // Addons
+    // MIGRATION: Replaced omsagent addon with Azure Monitor managed addon.
+    // The omsagent addon is deprecated; Azure Monitor Container Insights now
+    // uses the managed monitoring addon pattern.
     addonProfiles: {
-      omsagent: {
+      azureMonitorMetrics: {
         enabled: true
-        config: {
-          logAnalyticsWorkspaceResourceID: logAnalyticsWorkspaceId
-        }
       }
       azurepolicy: {
+        enabled: true
+      }
+    }
+
+    // MIGRATION: Added Azure Monitor Container Insights via new monitoring profile.
+    azureMonitorProfile: {
+      metrics: {
+        enabled: true
+      }
+      containerInsights: {
+        enabled: true
+        logAnalyticsWorkspaceResourceId: logAnalyticsWorkspaceId
+      }
+    }
+
+    // MIGRATION: Added ALB Controller managed addon for AGC integration.
+    // The ALB Controller runs inside AKS and manages the Application Gateway
+    // for Containers (AGC) configuration via Gateway API CRDs (Gateway, HTTPRoute).
+    // This replaces the retired AGIC (Application Gateway Ingress Controller).
+    ingressProfile: {
+      webAppRouting: {
         enabled: true
       }
     }
@@ -113,7 +140,7 @@ resource aks 'Microsoft.ContainerService/managedClusters@2024-06-02-preview' = {
 }
 
 // User node pool for application workloads
-resource userPool 'Microsoft.ContainerService/managedClusters/agentPools@2024-06-02-preview' = {
+resource userPool 'Microsoft.ContainerService/managedClusters/agentPools@2024-09-01' = {
   parent: aks
   name: 'workload'
   properties: {

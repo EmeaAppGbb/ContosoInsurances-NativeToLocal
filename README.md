@@ -23,62 +23,105 @@ Each deployment model lives on its own branch, making it easy to compare what ch
 
 ---
 
-## 🏗️ Architecture
+## 🏗️ Architecture — Azure Local Connected Mode
 
-The Contoso Insurance application follows a **microservices architecture** orchestrated by .NET Aspire, with clear network boundaries separating public and private services.
+In connected mode, the Contoso Insurance application runs **entirely on Azure Local hardware** while Azure Arc provides a **control plane bridge** back to Azure for management, monitoring, and identity. The application code is **unchanged** from the `main` branch — only the infrastructure layer changes.
+
+**New in April 2026:** Application Gateway for Containers (AGC) now works with Arc-enabled K8s clusters, providing a **unified ingress layer** across cloud and edge. This is a game-changer — the ingress configuration is now **identical** between `main` (cloud AKS) and `local-connected` (on-prem Arc K8s).
+
+### Topology Diagram
 
 ```
-  ┌──────────┐     HTTPS     ┌──────────────────────────────────────────────────┐
-  │          ├──────────────►│  Application Gateway for Containers (AGC)       │
-  │ Internet │               │  ─────────────────────────────────────────────  │
-  │          │               │  • Managed data plane (Microsoft.Service        │
-  └──────────┘               │    Networking/trafficControllers)               │
-                             │  • Gateway API (Gateway + HTTPRoute)            │
-                             │  • Built-in WAF, TLS termination, autoscale    │
-                             └───────────────────┬────────────────────────────┘
-                                                 │
-                                                 │ Routes to AKS via
-                                                 │ private VNet link
-                                                 ▼
-                            ┌─────────────────────────────────────────────────────────┐
-                            │                AKS Cluster (Private VNet)               │
-                            │                  Kubernetes 1.35                        │
-                            │                                                         │
-                            │  ┌──────────────────┐         ┌──────────────────────┐  │
-                            │  │                  │  HTTP   │                      │  │
-                            │  │  🌐 Web Frontend ├────────►│  🔌 API Service      │  │
-                            │  │  (Blazor Server)  │         │  (Minimal APIs)      │  │
-                            │  │  ClusterIP        │         │  ClusterIP           │  │
-                            │  └──────────────────┘         └──────┬───────────────┘  │
-                            │                                      │                   │
-                            │                                      │ Publishes Events  │
-                            │                                      ▼                   │
-                            │                               ┌──────────────────────┐  │
-                            │                               │                      │  │
-                            │                               │  🐇 RabbitMQ         │  │
-                            │                               │  (Message Broker)    │  │
-                            │                               └──────┬───────────────┘  │
-                            │                                      │                   │
-                            │                                      │ Consumes Events   │
-                            │                                      ▼                   │
-                            │  ┌──────────────────────────────────────────────────┐    │
-                            │  │                                                  │    │
-                            │  │  ⚙️  Background Worker                           │    │
-                            │  │  (Claim Processing)                              │    │
-                            │  │                                                  │    │
-                            │  └──────────────────────┬───────────────────────────┘    │
-                            │                         │                                │
-                            │                         │ Read / Write                   │
-                            │                         ▼                                │
-                            │  ┌──────────────────────────────────────────────────┐    │
-                            │  │  🗄️  Azure SQL Managed Instance                  │    │
-                            │  │  (Private Endpoint — No Public Access)           │    │
-                            │  └──────────────────────────────────────────────────┘    │
-                            │                                                         │
-                            └─────────────────────────────────────────────────────────┘
+ ┌─────────────────────────────────────────────────────────────────────────────────────┐
+ │                              AZURE CLOUD                                           │
+ │                                                                                     │
+ │   ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────────────────────┐  │
+ │   │  📦 Azure        │  │  🔑 Azure        │  │  📊 Azure Monitor               │  │
+ │   │  Container       │  │  Key Vault       │  │  ┌─────────────────────────────┐ │  │
+ │   │  Registry (ACR)  │  │                  │  │  │ Log Analytics Workspace     │ │  │
+ │   │                  │  │  Secrets &       │  │  │ Application Insights        │ │  │
+ │   │  Image source    │  │  Certificates    │  │  │ Metrics & Alerts            │ │  │
+ │   │  of truth        │  │  (via Arc CSI)   │  │  └─────────────────────────────┘ │  │
+ │   └──────────────────┘  └──────────────────┘  └──────────────────────────────────┘  │
+ │                                                                                     │
+ │   ┌──────────────────────────────────────────────────────────────────────────────┐  │
+ │   │                     🌐 Azure Arc Control Plane                              │  │
+ │   │                                                                              │  │
+ │   │   Azure Resource Manager  ←→  Arc Resource Bridge  ←→  Custom Locations     │  │
+ │   │                                                                              │  │
+ │   │   • Cluster visibility in Azure Portal       • Azure Policy enforcement     │  │
+ │   │   • GitOps (Flux) configuration management   • RBAC via Entra ID            │  │
+ │   └──────────────────────────────────────────────────────────────────────────────┘  │
+ │                                                                                     │
+ │   ┌──────────────────────────────────────────────────────────────────────────────┐  │
+ │   │            🚀 Application Gateway for Containers (AGC)                      │  │
+ │   │            Microsoft.ServiceNetworking/trafficControllers                   │  │
+ │   │                                                                              │  │
+ │   │   Internet ──► AGC Frontend (public IP, TLS termination, WAF)               │  │
+ │   │                    │                                                         │  │
+ │   │                    │  Gateway API: Gateway + HTTPRoute resources             │  │
+ │   │                    │  Routes traffic to on-prem pods via Arc tunnel          │  │
+ │   └────────────────────┼─────────────────────────────────────────────────────────┘  │
+ │                        │                                                             │
+ └────────────────────────┼─────────────────────────────────────────────────────────────┘
+                          │
+                   Arc Tunnel / Secure Channel
+                   (outbound HTTPS 443 only)
+                          │
+ ┌────────────────────────┴─────────────────────────────────────────────────────────────┐
+ │                         ON-PREMISES — AZURE LOCAL CLUSTER                            │
+ │                                                                                      │
+ │   ┌───────────────────────────────────────────────────────────────────────────────┐  │
+ │   │          Arc-enabled Kubernetes 1.35 (AKS on Azure Local)                    │  │
+ │   │          Custom Location: contoso-local-cl                                   │  │
+ │   │                                                                               │  │
+ │   │          ┌─────────────────────────────────────────┐                         │  │
+ │   │          │  ALB Controller (Arc Extension)         │                         │  │
+ │   │          │  Manages Gateway + HTTPRoute resources  │                         │  │
+ │   │          │  Syncs with AGC in Azure cloud          │                         │  │
+ │   │          └────────────────┬────────────────────────┘                         │  │
+ │   │                           │ Routes to backend pods                            │  │
+ │   │                           │                                                   │  │
+ │   │          ┌────────────────┼──────────────────────────────┐                   │  │
+ │   │          │   contoso-insurance namespace                 │                   │  │
+ │   │          │                │                               │                   │  │
+ │   │          │  ┌─────────────▼────────────────────────┐    │                   │  │
+ │   │          │  │  🌐 Web Frontend (Blazor Server)      │    │                   │  │
+ │   │          │  │  ClusterIP — port 8080                │    │                   │  │
+ │   │          │  └─────────────┬────────────────────────┘    │                   │  │
+ │   │          │                │ HTTP                         │                   │  │
+ │   │          │  ┌─────────────▼────────────────────────┐    │                   │  │
+ │   │          │  │  🔌 API Service (Minimal APIs)        │    │                   │  │
+ │   │          │  │  ClusterIP — port 8080                │    │                   │  │
+ │   │          │  └───────┬─────────────────┬─────────────┘    │                   │  │
+ │   │          │          │ AMQP            │ TDS               │                   │  │
+ │   │          │  ┌───────▼──────────┐  ┌───▼────────────────┐ │                   │  │
+ │   │          │  │ 🐇 RabbitMQ      │  │                    │ │                   │  │
+ │   │          │  │ ClusterIP        │  │                    │ │                   │  │
+ │   │          │  │ 5672 / 15672     │  │                    │ │                   │  │
+ │   │          │  └───────┬──────────┘  │                    │ │                   │  │
+ │   │          │          │ AMQP        │                    │ │                   │  │
+ │   │          │  ┌───────▼──────────┐  │                    │ │                   │  │
+ │   │          │  │ ⚙️ Worker         │  │                    │ │                   │  │
+ │   │          │  │ (Claim Processor)├──►                    │ │                   │  │
+ │   │          │  │ ClusterIP        │  │                    │ │                   │  │
+ │   │          │  └──────────────────┘  │                    │ │                   │  │
+ │   │          │                        │                    │ │                   │  │
+ │   │          └────────────────────────┼────────────────────┘ │                   │  │
+ │   │                                   │                      │                   │  │
+ │   └───────────────────────────────────┼──────────────────────┘                   │  │
+ │                                       │                                           │  │
+ │   ┌───────────────────────────────────▼───────────────────────────────────────┐   │  │
+ │   │  🗄️  Arc-enabled SQL Managed Instance                                     │   │  │
+ │   │  Data Controller: contoso-dc  |  Custom Location: contoso-local-cl        │   │  │
+ │   │  Private — accessible only from the K8s cluster network                   │   │  │
+ │   └───────────────────────────────────────────────────────────────────────────┘   │  │
+ │                                                                                   │  │
+ │   Azure Local Cluster: 2–4 node HCI cluster  │  Logical Network: 10.0.0.0/16     │  │
+ └───────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-> **Ingress update (April 2026):** This architecture uses **Application Gateway for Containers (AGC)** with Gateway API resources (`Gateway` + `HTTPRoute`), replacing the retired Application Gateway Ingress Controller (AGIC). See [Why AGC?](#-why-agc) below.
+> **🔑 Traffic flow:** Internet → AGC (Azure cloud, managed data plane) → Arc tunnel (outbound 443) → ALB Controller → K8s ClusterIP pods on-prem. No inbound firewall rules required on the on-prem network.
 
 ### Service Communication
 

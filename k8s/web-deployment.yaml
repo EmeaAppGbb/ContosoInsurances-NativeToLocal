@@ -1,5 +1,18 @@
 # Web Frontend — the ONLY internet-accessible service
-# Exposed via internal LoadBalancer, which App Gateway routes to.
+# ============================================================================
+# MIGRATION (April 2026):
+#   - Removed internal LoadBalancer service (was used with App Gateway WAF v2)
+#   - Added ClusterIP service (AGC routes directly to pods via ALB Controller)
+#   - Added Gateway API resources (Gateway + HTTPRoute) replacing Ingress API
+#   - App Gateway WAF v2 + AGIC retired March 2026 → AGC + Gateway API
+#
+# HOW IT WORKS NOW:
+#   Internet → AGC (Azure) → ALB Controller (in AKS) → webfrontend pods
+#   Routing is defined here in K8s manifests, NOT in Bicep appgateway module.
+#
+# PREREQUISITE: Gateway API CRDs must be installed:
+#   kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.2.1/standard-install.yaml
+# ============================================================================
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -55,19 +68,73 @@ spec:
             initialDelaySeconds: 5
             periodSeconds: 10
 ---
+# MIGRATION: Changed from LoadBalancer (internal) to ClusterIP.
+# With AGC + Gateway API, the ALB Controller manages traffic routing.
+# No need for an internal LoadBalancer — AGC connects directly to the service.
 apiVersion: v1
 kind: Service
 metadata:
   name: webfrontend-service
   namespace: contoso-insurance
-  annotations:
-    # Internal LB — only App Gateway can reach this from its subnet
-    service.beta.kubernetes.io/azure-load-balancer-internal: "true"
 spec:
-  type: LoadBalancer
+  type: ClusterIP
   selector:
     app: webfrontend
   ports:
     - port: 8080
       targetPort: 8080
       protocol: TCP
+---
+# ============================================================================
+# Gateway API Resources — replace legacy Ingress API
+# ============================================================================
+# MIGRATION: These Gateway API resources replace the App Gateway backend pool
+# and routing rules that were previously defined in appgateway.bicep.
+#
+# The ALB Controller addon (installed in AKS via aks.bicep) watches these
+# resources and configures AGC accordingly.
+#
+# Gateway API advantages over legacy Ingress:
+#   - Role-oriented: cluster operators manage Gateway, app devs manage HTTPRoute
+#   - Expressive: header-based routing, traffic splitting, URL rewriting
+#   - Extensible: vendor-specific features via policy attachments
+#   - Portable: works across multiple implementations (AGC, Istio, etc.)
+# ============================================================================
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: contoso-gateway
+  namespace: contoso-insurance
+  annotations:
+    # This annotation links the Gateway to the AGC Traffic Controller deployed by Bicep.
+    # Replace __AGC_RESOURCE_ID__ with the actual AGC resource ID from Bicep output
+    # (AZURE_AGC_RESOURCE_ID). CI/CD pipeline handles this substitution.
+    alb.networking.azure.io/alb-id: __AGC_RESOURCE_ID__
+spec:
+  # MIGRATION: gatewayClassName 'azure-alb-external' is the AGC class for
+  # public-facing frontends. Use 'azure-alb-internal' for private frontends.
+  gatewayClassName: azure-alb-external
+  listeners:
+    - name: http
+      port: 80
+      protocol: HTTP
+      allowedRoutes:
+        namespaces:
+          from: Same
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: webfrontend-route
+  namespace: contoso-insurance
+spec:
+  parentRefs:
+    - name: contoso-gateway
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: webfrontend-service
+          port: 8080
