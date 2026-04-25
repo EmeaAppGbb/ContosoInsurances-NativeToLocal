@@ -1,4 +1,11 @@
-# Shared ConfigMap for non-sensitive application configuration
+# ============================================================================
+# Shared ConfigMap (Azure Local Connected Mode)
+# ============================================================================
+#
+# MIGRATION NOTE: Added DEPLOYMENT_MODEL and ARC_CLUSTER_NAME for Azure Local.
+# APPLICATIONINSIGHTS_CONNECTION_STRING is unchanged — telemetry still goes
+# to Azure Monitor in the cloud.
+# ============================================================================
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -8,3 +15,6 @@ data:
   # Populated during deployment from Bicep outputs
   APPLICATIONINSIGHTS_CONNECTION_STRING: "__APPINSIGHTS_CONNECTION_STRING__"
   ASPNETCORE_ENVIRONMENT: "Production"
+  # NEW: Azure Local specific configuration
+  DEPLOYMENT_MODEL: "azure-local-connected"
+  ARC_CLUSTER_NAME: "__ARC_CLUSTER_NAME__"

@@ -4,4 +4,5 @@ metadata:
   name: contoso-insurance
   labels:
     app.kubernetes.io/part-of: contoso-insurance
-    app.kubernetes.io/managed-by: azd
+    # CHANGE: managed-by changed from azd to arc-gitops (Flux manages deployment)
+    app.kubernetes.io/managed-by: arc-gitops

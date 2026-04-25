@@ -1,4 +1,14 @@
-# API — Internal service only, NOT internet-accessible
+# ============================================================================
+# API — Internal service only (Azure Local Connected Mode)
+# ============================================================================
+#
+# MIGRATION NOTE (from main branch):
+# 1. Added imagePullSecrets for ACR auth (replaces AKS AcrPull managed identity)
+# 2. Removed nodeSelector (Azure Local nodes may not have the same labels)
+# 3. SQL connection string now points to Arc SQL MI (on-prem) instead of
+#    Azure SQL Database (cloud) — the env var name is identical
+# 4. Everything else is UNCHANGED — same container, same ports, same probes
+# ============================================================================
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -17,8 +27,8 @@ spec:
       labels:
         app: api
     spec:
-      nodeSelector:
-        workload: contoso-insurance
+      imagePullSecrets:
+        - name: acr-pull-secret
       containers:
         - name: api
           image: __ACR_LOGIN_SERVER__/contoso-insurance/api:__TAG__
@@ -27,6 +37,7 @@ spec:
           env:
             - name: ASPNETCORE_URLS
               value: "http://+:8080"
+            # Connection string points to Arc SQL MI (on-prem) instead of Azure SQL DB
             - name: ConnectionStrings__insurancedb
               valueFrom:
                 secretKeyRef:
@@ -62,7 +73,7 @@ spec:
             initialDelaySeconds: 5
             periodSeconds: 10
 ---
-# ClusterIP — internal only, no external access
+# ClusterIP — internal only, no external access (unchanged)
 apiVersion: v1
 kind: Service
 metadata:

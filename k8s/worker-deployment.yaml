@@ -1,5 +1,13 @@
-# Worker — Background processor consuming RabbitMQ messages
-# Internal only, no service endpoint needed (it pulls from queue)
+# ============================================================================
+# Worker — Background processor (Azure Local Connected Mode)
+# ============================================================================
+#
+# MIGRATION NOTE (from main branch):
+# 1. Added imagePullSecrets for ACR auth (replaces AKS managed identity)
+# 2. Removed nodeSelector (Azure Local nodes may not have same labels)
+# 3. SQL connection string now points to Arc SQL MI (on-prem)
+# 4. Everything else is UNCHANGED — same container, same env vars
+# ============================================================================
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -18,8 +26,8 @@ spec:
       labels:
         app: worker
     spec:
-      nodeSelector:
-        workload: contoso-insurance
+      imagePullSecrets:
+        - name: acr-pull-secret
       containers:
         - name: worker
           image: __ACR_LOGIN_SERVER__/contoso-insurance/worker:__TAG__

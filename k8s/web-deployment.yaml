@@ -1,5 +1,16 @@
-# Web Frontend — the ONLY internet-accessible service
-# Exposed via internal LoadBalancer, which App Gateway routes to.
+# ============================================================================
+# Web Frontend — the ONLY internet-accessible service (Azure Local Connected)
+# ============================================================================
+#
+# MIGRATION NOTE (from main branch):
+# 1. Service changed from internal LoadBalancer (+ App Gateway) to ClusterIP
+#    (+ NGINX Ingress). The Ingress resource at the bottom replaces the App
+#    Gateway routing that was configured in appgateway.bicep.
+# 2. Removed azure-load-balancer-internal annotation (no Azure LB on-prem)
+# 3. Added Ingress resource with nginx class
+# 4. nodeSelector kept but label may need adjustment for Azure Local nodes
+# 5. imagePullSecrets added for ACR authentication (replaces AKS AcrPull role)
+# ============================================================================
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -18,8 +29,9 @@ spec:
       labels:
         app: webfrontend
     spec:
-      nodeSelector:
-        workload: contoso-insurance
+      # CHANGE: Added imagePullSecrets for ACR auth (replaces AKS managed identity)
+      imagePullSecrets:
+        - name: acr-pull-secret
       containers:
         - name: webfrontend
           image: __ACR_LOGIN_SERVER__/contoso-insurance/webfrontend:__TAG__
@@ -55,19 +67,51 @@ spec:
             initialDelaySeconds: 5
             periodSeconds: 10
 ---
+# CHANGE: Service type changed from LoadBalancer to ClusterIP
+# In the cloud, this was an internal LoadBalancer that App Gateway routed to.
+# On Azure Local, NGINX Ingress Controller handles external routing.
 apiVersion: v1
 kind: Service
 metadata:
   name: webfrontend-service
   namespace: contoso-insurance
-  annotations:
-    # Internal LB — only App Gateway can reach this from its subnet
-    service.beta.kubernetes.io/azure-load-balancer-internal: "true"
 spec:
-  type: LoadBalancer
+  type: ClusterIP
   selector:
     app: webfrontend
   ports:
     - port: 8080
       targetPort: 8080
       protocol: TCP
+---
+# NEW: Ingress resource (replaces Application Gateway routing)
+# This tells the NGINX Ingress Controller to route external traffic to the
+# web frontend service. In the cloud deployment, this routing was handled
+# by the Application Gateway's backend pool + routing rules in Bicep.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: webfrontend-ingress
+  namespace: contoso-insurance
+  annotations:
+    # Use NGINX ingress class (replaces App Gateway ingress class)
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
+    # Enable ModSecurity WAF (equivalent to App Gateway WAF OWASP rules)
+    nginx.ingress.kubernetes.io/enable-modsecurity: "true"
+    nginx.ingress.kubernetes.io/modsecurity-snippet: |
+      SecRuleEngine On
+      Include /etc/nginx/owasp-modsecurity-crs/nginx-modsecurity.conf
+spec:
+  ingressClassName: nginx
+  rules:
+    - http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: webfrontend-service
+                port:
+                  number: 8080

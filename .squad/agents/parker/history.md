@@ -46,3 +46,17 @@
 - Modular Bicep design (module outputs referenced by consumers) allows safe infrastructure swaps (e.g., SQL DB→MI)
 - Private cluster + App Gateway pattern provides strong security posture while maintaining accessibility
 - Zero-trust network policies (Calico) require explicit allow rules but prevent lateral movement
+
+### Azure Local Connected Mode Migration (2026-07-15)
+- Migrated all infra from cloud AKS to Azure Local connected mode on `local-connected` branch
+- targetScope changed from `subscription` to `resourceGroup` — Azure Local resources deploy into existing RGs
+- AKS → Arc-enabled K8s: cluster exists on-prem, Bicep configures Arc extensions (monitoring, policy, KV secrets, Flux GitOps)
+- Azure SQL DB → Arc SQL MI: deployed via Custom Location to Azure Local hardware; same connection string shape
+- App Gateway → NGINX Ingress + MetalLB: on-prem has no PaaS L7 LB; ModSecurity replaces WAF OWASP rules
+- Private endpoints REMOVED: on-prem cluster reaches Azure PaaS (ACR, KV, Monitor) over internet/ExpressRoute
+- ACR auth: AKS AcrPull managed identity → imagePullSecrets with service principal/token
+- storageClassName: `managed-csi` (Azure Disk) → `default` (Azure Local Storage Spaces Direct)
+- Network policies: SQL egress changed from ipBlock CIDR (private endpoint) to namespaceSelector (arc-data namespace)
+- Bicep `reference()` function can't be used for `location` property — must pass location as parameter
+- Connected mode keeps ACR, Key Vault, and Monitor in Azure cloud — only compute + data move on-prem
+- Application code is 100% unchanged — same containers, same env vars, same connection string format

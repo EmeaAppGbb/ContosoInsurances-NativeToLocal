@@ -1,9 +1,23 @@
 # ============================================================================
-# Network Policies — Zero-trust within the cluster
-# Default: deny all ingress/egress, then allow only required flows.
+# Network Policies — Zero-trust within the cluster (Azure Local Connected)
+# ============================================================================
+#
+# MIGRATION NOTE (from main branch):
+# Network policies work IDENTICALLY on Arc-enabled K8s as they did on AKS.
+# The CNI plugin on the Azure Local K8s cluster must support NetworkPolicy
+# (Calico, Cilium, or Azure Local's built-in CNI).
+#
+# KEY CHANGES:
+# 1. Web frontend egress to Azure services (ACR, Key Vault, Monitor) added —
+#    on Azure Local, pods need outbound internet access to reach Azure PaaS.
+#    In the cloud, these were accessed via private endpoints within the VNet.
+# 2. API/Worker SQL egress updated — SQL MI is now on the local K8s network
+#    (not a private endpoint in a different subnet). The CIDR is updated to
+#    allow traffic to the Arc SQL MI pod.
+# 3. All pods need DNS egress (unchanged).
 # ============================================================================
 
-# Default deny all ingress in the namespace
+# Default deny all ingress/egress in the namespace
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -16,7 +30,7 @@ spec:
     - Egress
 
 ---
-# Web Frontend: allow ingress from App Gateway subnet, allow egress to API
+# Web Frontend: allow ingress from NGINX Ingress, allow egress to API + Azure
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -30,8 +44,12 @@ spec:
     - Ingress
     - Egress
   ingress:
-    # Allow traffic from any source (App Gateway internal LB)
-    - ports:
+    # Allow traffic from NGINX Ingress Controller namespace
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
         - port: 8080
           protocol: TCP
   egress:
@@ -51,9 +69,21 @@ spec:
           protocol: UDP
         - port: 53
           protocol: TCP
+    # CHANGE: Allow outbound HTTPS to Azure services (App Insights telemetry)
+    # In cloud, this went through the VNet. On-prem, it goes over internet.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - port: 443
+          protocol: TCP
 
 ---
-# API: allow ingress from Web Frontend, allow egress to SQL and RabbitMQ
+# API: allow ingress from Web Frontend, allow egress to SQL MI, RabbitMQ, Azure
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -83,10 +113,12 @@ spec:
       ports:
         - port: 5672
           protocol: TCP
-    # SQL via private endpoint (CIDR covers private endpoints subnet)
+    # CHANGE: Arc SQL MI runs as a pod on the K8s network (was private endpoint CIDR)
+    # Allow SQL traffic to the arc-data namespace where SQL MI runs
     - to:
-        - ipBlock:
-            cidr: 10.0.17.0/24
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: arc-data
       ports:
         - port: 1433
           protocol: TCP
@@ -98,9 +130,20 @@ spec:
           protocol: UDP
         - port: 53
           protocol: TCP
+    # Outbound HTTPS to Azure services (App Insights, Key Vault)
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - port: 443
+          protocol: TCP
 
 ---
-# Worker: allow egress to SQL and RabbitMQ only (no ingress needed)
+# Worker: allow egress to SQL MI, RabbitMQ, and Azure (no ingress needed)
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -123,10 +166,11 @@ spec:
       ports:
         - port: 5672
           protocol: TCP
-    # SQL via private endpoint
+    # CHANGE: Arc SQL MI in arc-data namespace (was private endpoint CIDR)
     - to:
-        - ipBlock:
-            cidr: 10.0.17.0/24
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: arc-data
       ports:
         - port: 1433
           protocol: TCP
@@ -138,9 +182,20 @@ spec:
           protocol: UDP
         - port: 53
           protocol: TCP
+    # Outbound HTTPS to Azure services
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - port: 443
+          protocol: TCP
 
 ---
-# RabbitMQ: allow ingress from API and Worker only
+# RabbitMQ: allow ingress from API and Worker only (unchanged logic)
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:

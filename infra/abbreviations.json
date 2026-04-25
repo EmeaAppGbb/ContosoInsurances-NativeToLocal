@@ -13,5 +13,9 @@
   "privateDnsZone": "pdnsz-",
   "privateEndpoint": "pep-",
   "managedIdentity": "id-",
-  "resourceGroup": "rg-"
+  "resourceGroup": "rg-",
+  "arcConnectedCluster": "arc-k8s-",
+  "arcSqlManagedInstance": "arc-sqlmi-",
+  "customLocation": "cl-",
+  "arcDataController": "arcdc-"
 }

@@ -1,5 +1,15 @@
-# RabbitMQ — StatefulSet with persistent storage
-# Internal only, accessed by API and Worker via ClusterIP service
+# ============================================================================
+# RabbitMQ — StatefulSet with persistent storage (Azure Local Connected Mode)
+# ============================================================================
+#
+# MIGRATION NOTE (from main branch):
+# 1. storageClassName changed from 'managed-csi' (Azure Disk CSI) to 'default'
+#    Azure Local uses Storage Spaces Direct / CSV-backed persistent volumes.
+#    The 'default' storage class should be configured on the Azure Local cluster
+#    to use the local storage infrastructure.
+# 2. Removed nodeSelector (Azure Local nodes may not have same labels)
+# 3. Everything else is UNCHANGED — same image, same ports, same probes
+# ============================================================================
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -19,8 +29,6 @@ spec:
       labels:
         app: rabbitmq
     spec:
-      nodeSelector:
-        workload: contoso-insurance
       containers:
         - name: rabbitmq
           image: rabbitmq:3-management-alpine
@@ -62,12 +70,14 @@ spec:
         name: rabbitmq-data
       spec:
         accessModes: ["ReadWriteOnce"]
-        storageClassName: managed-csi
+        # CHANGE: 'default' storage class (was 'managed-csi' for Azure Disk)
+        # Azure Local uses Storage Spaces Direct for persistent volumes
+        storageClassName: default
         resources:
           requests:
             storage: 8Gi
 ---
-# ClusterIP — internal only
+# ClusterIP — internal only (unchanged)
 apiVersion: v1
 kind: Service
 metadata:

@@ -1,203 +1,59 @@
 // ============================================================================
-// Application Gateway Module — Public-Facing Ingress
-// This is the ONLY resource with a public IP. Routes internet traffic to the
-// Web frontend service running in AKS. Includes WAF v2 with OWASP rules.
+// Ingress Module — NGINX Ingress + MetalLB Guidance (Azure Local Connected)
+// ============================================================================
+//
+// REPLACES: appgateway.bicep (cloud deployment on main branch)
+//
+// WHY THIS CHANGED:
+// Azure Application Gateway is an Azure-native PaaS L7 load balancer. It
+// does NOT exist on Azure Local. On-premises Kubernetes clusters need a
+// different ingress strategy:
+//
+//   1. NGINX Ingress Controller — L7 reverse proxy running as K8s pods
+//      Provides: TLS termination, path-based routing, rate limiting
+//      Deployed via: K8s manifests (see k8s/ingress-nginx.yaml)
+//
+//   2. MetalLB — Bare-metal LoadBalancer implementation for K8s
+//      Provides: External IP allocation for LoadBalancer services
+//      Deployed via: K8s manifests (see k8s/metallb-config.yaml)
+//      Needed because: On-prem K8s has no cloud provider to assign external IPs
+//
+//   3. Alternative: Azure Local SDN Load Balancer
+//      If your Azure Local deployment uses SDN, you may use the built-in
+//      software load balancer instead of MetalLB.
+//
+// SECURITY COMPARISON:
+//   Cloud (App Gateway WAF v2)     → Azure Local (NGINX + ModSecurity)
+//   - OWASP 3.2 managed rules     → OWASP CRS via ModSecurity plugin
+//   - Bot protection               → Rate limiting + custom rules
+//   - DDoS protection (Azure)      → Physical firewall / IPS
+//   - TLS termination              → TLS termination (cert-manager)
+//   - Azure-managed certificates   → cert-manager with Let's Encrypt or internal CA
+//
+// This Bicep module is a DOCUMENTATION MODULE — it does not deploy Azure
+// resources. The actual ingress infrastructure is deployed as K8s workloads.
+// ============================================================================
+//
+// DEPLOYMENT GUIDE:
+//
+// Step 1: Install MetalLB (bare-metal load balancer)
+//   kubectl apply -f k8s/metallb-config.yaml
+//
+// Step 2: Install NGINX Ingress Controller
+//   kubectl apply -f k8s/ingress-nginx.yaml
+//   # Or via Helm:
+//   # helm install ingress-nginx ingress-nginx/ingress-nginx \
+//   #   --namespace ingress-nginx --create-namespace \
+//   #   --set controller.service.type=LoadBalancer
+//
+// Step 3: Apply Ingress resources
+//   kubectl apply -f k8s/web-deployment.yaml  # includes Ingress resource
+//
+// Step 4: Configure DNS
+//   Point your domain to the MetalLB-assigned external IP
+//
 // ============================================================================
 
-@description('Azure region')
-param location string
-
-@description('Unique resource token for naming')
-param resourceToken string
-
-@description('Resource tags')
-param tags object
-
-@description('Application Gateway subnet resource ID')
-param appGwSubnetId string
-
-// ---------------------------------------------------------------------------
-// Variables
-// ---------------------------------------------------------------------------
-
-var abbrs = loadJsonContent('../abbreviations.json')
-var appGwName = '${abbrs.applicationGateway}${resourceToken}'
-var publicIpName = '${abbrs.publicIPAddress}appgw-${resourceToken}'
-
-// ---------------------------------------------------------------------------
-// Public IP Address
-// ---------------------------------------------------------------------------
-
-resource publicIp 'Microsoft.Network/publicIPAddresses@2024-01-01' = {
-  name: publicIpName
-  location: location
-  tags: tags
-  sku: {
-    name: 'Standard'
-  }
-  properties: {
-    publicIPAllocationMethod: 'Static'
-    publicIPAddressVersion: 'IPv4'
-  }
-}
-
-// ---------------------------------------------------------------------------
-// WAF Policy — OWASP 3.2 rule set
-// ---------------------------------------------------------------------------
-
-resource wafPolicy 'Microsoft.Network/ApplicationGatewayWebApplicationFirewallPolicies@2024-01-01' = {
-  name: 'waf-${resourceToken}'
-  location: location
-  tags: tags
-  properties: {
-    policySettings: {
-      requestBodyCheck: true
-      maxRequestBodySizeInKb: 128
-      fileUploadLimitInMb: 100
-      state: 'Enabled'
-      mode: 'Prevention'
-    }
-    managedRules: {
-      managedRuleSets: [
-        {
-          ruleSetType: 'OWASP'
-          ruleSetVersion: '3.2'
-        }
-        {
-          ruleSetType: 'Microsoft_BotManagerRuleSet'
-          ruleSetVersion: '1.0'
-        }
-      ]
-    }
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Application Gateway v2 with WAF
-// ---------------------------------------------------------------------------
-
-resource appGw 'Microsoft.Network/applicationGateways@2024-01-01' = {
-  name: appGwName
-  location: location
-  tags: tags
-  properties: {
-    sku: {
-      name: 'WAF_v2'
-      tier: 'WAF_v2'
-      capacity: 2
-    }
-    firewallPolicy: {
-      id: wafPolicy.id
-    }
-    gatewayIPConfigurations: [
-      {
-        name: 'appGatewayIpConfig'
-        properties: {
-          subnet: {
-            id: appGwSubnetId
-          }
-        }
-      }
-    ]
-    frontendIPConfigurations: [
-      {
-        name: 'appGatewayFrontendIP'
-        properties: {
-          publicIPAddress: {
-            id: publicIp.id
-          }
-        }
-      }
-    ]
-    frontendPorts: [
-      {
-        name: 'port-80'
-        properties: {
-          port: 80
-        }
-      }
-      {
-        name: 'port-443'
-        properties: {
-          port: 443
-        }
-      }
-    ]
-    // Backend pool — will be updated post-deploy to point at AKS internal LB
-    backendAddressPools: [
-      {
-        name: 'web-frontend-pool'
-        properties: {
-          backendAddresses: []
-        }
-      }
-    ]
-    backendHttpSettingsCollection: [
-      {
-        name: 'web-frontend-settings'
-        properties: {
-          port: 8080
-          protocol: 'Http'
-          cookieBasedAffinity: 'Disabled'
-          requestTimeout: 30
-          pickHostNameFromBackendAddress: false
-        }
-      }
-    ]
-    httpListeners: [
-      {
-        name: 'http-listener'
-        properties: {
-          frontendIPConfiguration: {
-            id: resourceId('Microsoft.Network/applicationGateways/frontendIPConfigurations', appGwName, 'appGatewayFrontendIP')
-          }
-          frontendPort: {
-            id: resourceId('Microsoft.Network/applicationGateways/frontendPorts', appGwName, 'port-80')
-          }
-          protocol: 'Http'
-        }
-      }
-    ]
-    // Route all HTTP traffic to the web frontend backend pool
-    requestRoutingRules: [
-      {
-        name: 'web-routing-rule'
-        properties: {
-          priority: 100
-          ruleType: 'Basic'
-          httpListener: {
-            id: resourceId('Microsoft.Network/applicationGateways/httpListeners', appGwName, 'http-listener')
-          }
-          backendAddressPool: {
-            id: resourceId('Microsoft.Network/applicationGateways/backendAddressPools', appGwName, 'web-frontend-pool')
-          }
-          backendHttpSettings: {
-            id: resourceId('Microsoft.Network/applicationGateways/backendHttpSettingsCollection', appGwName, 'web-frontend-settings')
-          }
-        }
-      }
-    ]
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Resource Lock (production protection)
-// ---------------------------------------------------------------------------
-
-resource appGwLock 'Microsoft.Authorization/locks@2020-05-01' = {
-  name: 'appgw-do-not-delete'
-  scope: appGw
-  properties: {
-    level: 'CanNotDelete'
-    notes: 'Application Gateway is the sole ingress point. Do not delete.'
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Outputs
-// ---------------------------------------------------------------------------
-
-output appGatewayId string = appGw.id
-output appGatewayName string = appGw.name
-output publicIpAddress string = publicIp.properties.ipAddress
-output publicIpId string = publicIp.id
+// This module intentionally has no deployable resources.
+// It exists to maintain the same module structure as the cloud deployment
+// and to serve as documentation for the ingress replacement strategy.
