@@ -1,0 +1,175 @@
+# ============================================================================
+# Contoso Insurance — CI/CD Pipeline
+# Builds, tests, containerizes, and deploys the application to AKS via AZD.
+# ============================================================================
+
+name: CI/CD — Build and Deploy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  DOTNET_VERSION: "10.0.x"
+  AZURE_ENV_NAME: ${{ vars.AZURE_ENV_NAME || 'dev' }}
+  AZURE_LOCATION: ${{ vars.AZURE_LOCATION || 'eastus2' }}
+
+jobs:
+  # --------------------------------------------------------------------------
+  # Build & Test
+  # --------------------------------------------------------------------------
+  build-and-test:
+    name: Build & Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Restore dependencies
+        run: dotnet restore ContosoInsurance.slnx
+
+      - name: Build
+        run: dotnet build ContosoInsurance.slnx --no-restore --configuration Release
+
+      - name: Test
+        run: dotnet test ContosoInsurance.slnx --no-build --configuration Release --verbosity normal --logger trx --results-directory TestResults
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: TestResults/*.trx
+
+  # --------------------------------------------------------------------------
+  # Build Container Images & Push to ACR
+  # --------------------------------------------------------------------------
+  build-images:
+    name: Build Container Images
+    needs: build-and-test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    outputs:
+      image_tag: ${{ steps.meta.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Get ACR details
+        id: acr
+        run: |
+          ACR_NAME=$(az acr list --resource-group rg-${{ env.AZURE_ENV_NAME }} --query '[0].name' -o tsv)
+          ACR_LOGIN_SERVER=$(az acr show --name $ACR_NAME --query loginServer -o tsv)
+          echo "name=$ACR_NAME" >> $GITHUB_OUTPUT
+          echo "login_server=$ACR_LOGIN_SERVER" >> $GITHUB_OUTPUT
+
+      - name: ACR Login
+        run: az acr login --name ${{ steps.acr.outputs.name }}
+
+      - name: Set image tag
+        id: meta
+        run: echo "tag=${{ github.sha }}" >> $GITHUB_OUTPUT
+
+      - name: Build and push Web Frontend
+        run: |
+          docker build -f src/ContosoInsurance.Web/Dockerfile -t ${{ steps.acr.outputs.login_server }}/contoso-insurance/webfrontend:${{ steps.meta.outputs.tag }} .
+          docker push ${{ steps.acr.outputs.login_server }}/contoso-insurance/webfrontend:${{ steps.meta.outputs.tag }}
+
+      - name: Build and push API
+        run: |
+          docker build -f src/ContosoInsurance.Api/Dockerfile -t ${{ steps.acr.outputs.login_server }}/contoso-insurance/api:${{ steps.meta.outputs.tag }} .
+          docker push ${{ steps.acr.outputs.login_server }}/contoso-insurance/api:${{ steps.meta.outputs.tag }}
+
+      - name: Build and push Worker
+        run: |
+          docker build -f src/ContosoInsurance.Worker/Dockerfile -t ${{ steps.acr.outputs.login_server }}/contoso-insurance/worker:${{ steps.meta.outputs.tag }} .
+          docker push ${{ steps.acr.outputs.login_server }}/contoso-insurance/worker:${{ steps.meta.outputs.tag }}
+
+  # --------------------------------------------------------------------------
+  # Deploy to AKS
+  # --------------------------------------------------------------------------
+  deploy:
+    name: Deploy to AKS
+    needs: build-images
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Get cluster credentials
+        run: |
+          AKS_NAME=$(az aks list --resource-group rg-${{ env.AZURE_ENV_NAME }} --query '[0].name' -o tsv)
+          az aks get-credentials --resource-group rg-${{ env.AZURE_ENV_NAME }} --name $AKS_NAME --overwrite-existing
+
+      - name: Get deployment details
+        id: details
+        run: |
+          ACR_LOGIN_SERVER=$(az acr list --resource-group rg-${{ env.AZURE_ENV_NAME }} --query '[0].loginServer' -o tsv)
+          APPINSIGHTS_CS=$(az monitor app-insights component show --resource-group rg-${{ env.AZURE_ENV_NAME }} --query '[0].connectionString' -o tsv)
+          KV_NAME=$(az keyvault list --resource-group rg-${{ env.AZURE_ENV_NAME }} --query '[0].name' -o tsv)
+          SQL_CS=$(az keyvault secret show --vault-name $KV_NAME --name sql-connection-string --query value -o tsv)
+          RABBITMQ_PW=$(az keyvault secret show --vault-name $KV_NAME --name rabbitmq-password --query value -o tsv)
+          echo "acr_login_server=$ACR_LOGIN_SERVER" >> $GITHUB_OUTPUT
+          echo "appinsights_cs=$APPINSIGHTS_CS" >> $GITHUB_OUTPUT
+          echo "::add-mask::$SQL_CS"
+          echo "sql_cs=$SQL_CS" >> $GITHUB_OUTPUT
+          echo "::add-mask::$RABBITMQ_PW"
+          echo "rabbitmq_pw=$RABBITMQ_PW" >> $GITHUB_OUTPUT
+
+      - name: Apply namespace
+        run: kubectl apply -f k8s/namespace.yaml
+
+      - name: Deploy ConfigMap
+        run: |
+          sed "s|__APPINSIGHTS_CONNECTION_STRING__|${{ steps.details.outputs.appinsights_cs }}|g" k8s/configmap.yaml | kubectl apply -f -
+
+      - name: Deploy Secrets
+        run: |
+          sed -e "s|__SQL_CONNECTION_STRING__|${{ steps.details.outputs.sql_cs }}|g" \
+              -e "s|__RABBITMQ_PASSWORD__|${{ steps.details.outputs.rabbitmq_pw }}|g" \
+              k8s/secrets.yaml | kubectl apply -f -
+
+      - name: Deploy RabbitMQ
+        run: kubectl apply -f k8s/rabbitmq-deployment.yaml
+
+      - name: Deploy application
+        env:
+          TAG: ${{ needs.build-images.outputs.image_tag }}
+          ACR: ${{ steps.details.outputs.acr_login_server }}
+        run: |
+          for manifest in k8s/api-deployment.yaml k8s/worker-deployment.yaml k8s/web-deployment.yaml; do
+            sed -e "s|__ACR_LOGIN_SERVER__|$ACR|g" -e "s|__TAG__|$TAG|g" "$manifest" | kubectl apply -f -
+          done
+
+      - name: Apply network policies
+        run: kubectl apply -f k8s/network-policies.yaml
+
+      - name: Verify rollout
+        run: |
+          kubectl rollout status deployment/webfrontend -n contoso-insurance --timeout=300s
+          kubectl rollout status deployment/api -n contoso-insurance --timeout=300s
+          kubectl rollout status deployment/worker -n contoso-insurance --timeout=300s

@@ -1,0 +1,78 @@
+# API — Internal service only, NOT internet-accessible
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+  namespace: contoso-insurance
+  labels:
+    app: api
+    app.kubernetes.io/part-of: contoso-insurance
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: api
+  template:
+    metadata:
+      labels:
+        app: api
+    spec:
+      nodeSelector:
+        workload: contoso-insurance
+      containers:
+        - name: api
+          image: __ACR_LOGIN_SERVER__/contoso-insurance/api:__TAG__
+          ports:
+            - containerPort: 8080
+          env:
+            - name: ASPNETCORE_URLS
+              value: "http://+:8080"
+            - name: ConnectionStrings__insurancedb
+              valueFrom:
+                secretKeyRef:
+                  name: contoso-secrets
+                  key: SQL_CONNECTION_STRING
+            - name: ConnectionStrings__messaging
+              valueFrom:
+                secretKeyRef:
+                  name: contoso-secrets
+                  key: RABBITMQ_CONNECTION_STRING
+            - name: APPLICATIONINSIGHTS_CONNECTION_STRING
+              valueFrom:
+                configMapKeyRef:
+                  name: contoso-config
+                  key: APPLICATIONINSIGHTS_CONNECTION_STRING
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "256Mi"
+            limits:
+              cpu: "1000m"
+              memory: "1Gi"
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+---
+# ClusterIP — internal only, no external access
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-service
+  namespace: contoso-insurance
+spec:
+  type: ClusterIP
+  selector:
+    app: api
+  ports:
+    - port: 8080
+      targetPort: 8080
+      protocol: TCP

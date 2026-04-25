@@ -1,0 +1,17 @@
+{
+  "aksCluster": "aks-",
+  "containerRegistry": "cr",
+  "keyVault": "kv-",
+  "logAnalyticsWorkspace": "log-",
+  "applicationInsights": "appi-",
+  "virtualNetwork": "vnet-",
+  "networkSecurityGroup": "nsg-",
+  "publicIPAddress": "pip-",
+  "applicationGateway": "agw-",
+  "sqlServer": "sql-",
+  "sqlDatabase": "sqldb-",
+  "privateDnsZone": "pdnsz-",
+  "privateEndpoint": "pep-",
+  "managedIdentity": "id-",
+  "resourceGroup": "rg-"
+}

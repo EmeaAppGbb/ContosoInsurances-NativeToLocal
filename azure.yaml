@@ -1,0 +1,14 @@
+# Azure Developer CLI (azd) configuration for Contoso Insurance
+# Uses Aspire-native pattern — azd discovers services from the AppHost project
+name: contoso-insurance
+metadata:
+  template: contoso-insurance-aspire
+services:
+  app:
+    language: dotnet
+    project: src/ContosoInsurance.AppHost/ContosoInsurance.AppHost.csproj
+    host: containerapp
+infra:
+  provider: bicep
+  path: infra
+  module: main

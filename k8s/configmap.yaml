@@ -1,0 +1,10 @@
+# Shared ConfigMap for non-sensitive application configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: contoso-config
+  namespace: contoso-insurance
+data:
+  # Populated during deployment from Bicep outputs
+  APPLICATIONINSIGHTS_CONNECTION_STRING: "__APPINSIGHTS_CONNECTION_STRING__"
+  ASPNETCORE_ENVIRONMENT: "Production"

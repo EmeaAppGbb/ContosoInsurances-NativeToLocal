@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: contoso-insurance
+  labels:
+    app.kubernetes.io/part-of: contoso-insurance
+    app.kubernetes.io/managed-by: azd

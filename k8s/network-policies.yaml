@@ -1,0 +1,175 @@
+# ============================================================================
+# Network Policies — Zero-trust within the cluster
+# Default: deny all ingress/egress, then allow only required flows.
+# ============================================================================
+
+# Default deny all ingress in the namespace
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: contoso-insurance
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+
+---
+# Web Frontend: allow ingress from App Gateway subnet, allow egress to API
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-webfrontend
+  namespace: contoso-insurance
+spec:
+  podSelector:
+    matchLabels:
+      app: webfrontend
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow traffic from any source (App Gateway internal LB)
+    - ports:
+        - port: 8080
+          protocol: TCP
+  egress:
+    # Allow calling the API service
+    - to:
+        - podSelector:
+            matchLabels:
+              app: api
+      ports:
+        - port: 8080
+          protocol: TCP
+    # Allow DNS resolution
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+
+---
+# API: allow ingress from Web Frontend, allow egress to SQL and RabbitMQ
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-api
+  namespace: contoso-insurance
+spec:
+  podSelector:
+    matchLabels:
+      app: api
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: webfrontend
+      ports:
+        - port: 8080
+          protocol: TCP
+  egress:
+    # RabbitMQ
+    - to:
+        - podSelector:
+            matchLabels:
+              app: rabbitmq
+      ports:
+        - port: 5672
+          protocol: TCP
+    # SQL via private endpoint (CIDR covers private endpoints subnet)
+    - to:
+        - ipBlock:
+            cidr: 10.0.17.0/24
+      ports:
+        - port: 1433
+          protocol: TCP
+    # DNS
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+
+---
+# Worker: allow egress to SQL and RabbitMQ only (no ingress needed)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-worker
+  namespace: contoso-insurance
+spec:
+  podSelector:
+    matchLabels:
+      app: worker
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress: []  # Worker receives no inbound traffic
+  egress:
+    # RabbitMQ
+    - to:
+        - podSelector:
+            matchLabels:
+              app: rabbitmq
+      ports:
+        - port: 5672
+          protocol: TCP
+    # SQL via private endpoint
+    - to:
+        - ipBlock:
+            cidr: 10.0.17.0/24
+      ports:
+        - port: 1433
+          protocol: TCP
+    # DNS
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+
+---
+# RabbitMQ: allow ingress from API and Worker only
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-rabbitmq
+  namespace: contoso-insurance
+spec:
+  podSelector:
+    matchLabels:
+      app: rabbitmq
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: api
+        - podSelector:
+            matchLabels:
+              app: worker
+      ports:
+        - port: 5672
+          protocol: TCP
+  egress:
+    # DNS only
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP

@@ -18,3 +18,12 @@
 - Build verified clean: 0 errors
 - **Fanout task:** Write Bicep/AZD infrastructure code (AKS, Azure SQL MI, VNet, private endpoints, ACR, Key Vault)
 
+### Infrastructure Phase (2026-07-15)
+- Created full IaC scaffold: `azure.yaml`, `infra/` (7 Bicep modules), `k8s/` (8 manifests), CI/CD pipeline
+- Aspire connection names: `insurancedb` (SQL), `messaging` (RabbitMQ) — K8s env vars must match
+- Azure CNI needs /20 subnet for AKS pod IPs; App Gateway WAF v2 needs dedicated subnet + GatewayManager NSG
+- Chose Azure SQL Database serverless over MI for cost; MI is production target for Azure Local
+- All PaaS (ACR, SQL, KV) use private endpoints + DNS zone links; only App Gateway has a public IP
+- Network policies enforce zero-trust: default-deny + explicit allow per service pair
+- Key Vault uses RBAC (not access policies); deployer gets admin, AKS kubelet gets secrets-user
+
