@@ -28,23 +28,36 @@ Each deployment model lives on its own branch, making it easy to compare what ch
 The Contoso Insurance application follows a **microservices architecture** orchestrated by .NET Aspire, with clear network boundaries separating public and private services.
 
 ```
+  ┌──────────┐     HTTPS     ┌──────────────────────────────────────────────────┐
+  │          ├──────────────►│  Application Gateway for Containers (AGC)       │
+  │ Internet │               │  ─────────────────────────────────────────────  │
+  │          │               │  • Managed data plane (Microsoft.Service        │
+  └──────────┘               │    Networking/trafficControllers)               │
+                             │  • Gateway API (Gateway + HTTPRoute)            │
+                             │  • Built-in WAF, TLS termination, autoscale    │
+                             └───────────────────┬────────────────────────────┘
+                                                 │
+                                                 │ Routes to AKS via
+                                                 │ private VNet link
+                                                 ▼
                             ┌─────────────────────────────────────────────────────────┐
-                            │                    Virtual Network                      │
+                            │                AKS Cluster (Private VNet)               │
+                            │                  Kubernetes 1.35                        │
                             │                                                         │
-  ┌──────────┐              │  ┌──────────────────┐         ┌──────────────────────┐  │
-  │          │   HTTPS      │  │                  │  HTTP   │                      │  │
-  │ Internet ├─────────────►│  │  🌐 Web Frontend ├────────►│  🔌 API Service      │  │
-  │          │              │  │  (Blazor Server)  │         │  (Minimal APIs)      │  │
-  └──────────┘              │  │  Port: 443        │         │  Internal Only       │  │
-         │                  │  └──────────────────┘         └──────┬───────────────┘  │
-         │                  │                                      │                   │
-         ▼                  │                                      │ Publishes Events  │
-  ┌──────────────┐          │                                      ▼                   │
-  │ Application  │          │                               ┌──────────────────────┐  │
-  │ Gateway /    │          │                               │                      │  │
-  │ Ingress      │          │                               │  🐇 RabbitMQ         │  │
-  │ Controller   │──────────┤                               │  (Message Broker)    │  │
-  └──────────────┘          │                               └──────┬───────────────┘  │
+                            │  ┌──────────────────┐         ┌──────────────────────┐  │
+                            │  │                  │  HTTP   │                      │  │
+                            │  │  🌐 Web Frontend ├────────►│  🔌 API Service      │  │
+                            │  │  (Blazor Server)  │         │  (Minimal APIs)      │  │
+                            │  │  ClusterIP        │         │  ClusterIP           │  │
+                            │  └──────────────────┘         └──────┬───────────────┘  │
+                            │                                      │                   │
+                            │                                      │ Publishes Events  │
+                            │                                      ▼                   │
+                            │                               ┌──────────────────────┐  │
+                            │                               │                      │  │
+                            │                               │  🐇 RabbitMQ         │  │
+                            │                               │  (Message Broker)    │  │
+                            │                               └──────┬───────────────┘  │
                             │                                      │                   │
                             │                                      │ Consumes Events   │
                             │                                      ▼                   │
@@ -65,6 +78,8 @@ The Contoso Insurance application follows a **microservices architecture** orche
                             └─────────────────────────────────────────────────────────┘
 ```
 
+> **Ingress update (April 2026):** This architecture uses **Application Gateway for Containers (AGC)** with Gateway API resources (`Gateway` + `HTTPRoute`), replacing the retired Application Gateway Ingress Controller (AGIC). See [Why AGC?](#-why-agc) below.
+
 ### Service Communication
 
 All inter-service communication uses **.NET Aspire service discovery**:
@@ -81,7 +96,8 @@ Aspire automatically injects connection strings and service URLs at runtime — 
 
 ### Security Architecture
 
-- **Only the Web Frontend is internet-facing**, exposed through an Application Gateway / Ingress Controller.
+- **Only the Web Frontend is internet-facing**, exposed through Application Gateway for Containers (AGC) using Gateway API (`Gateway` + `HTTPRoute` resources).
+- **AGC provides built-in WAF**, TLS termination, and automatic scaling — no separate WAF SKU required.
 - The **API, Worker, RabbitMQ, and SQL database are private** — accessible only within the virtual network.
 - **Network Security Groups (NSGs)** restrict lateral movement between services.
 - **Private endpoints** ensure database traffic never leaves the VNet.
@@ -124,7 +140,8 @@ ContosoInsurance.slnx                     # .NET 10 XML solution file
 | **Database** | SQL Server / Azure SQL MI | Relational data storage |
 | **Messaging** | RabbitMQ | Asynchronous event-driven processing |
 | **Observability** | OpenTelemetry | Distributed tracing, metrics, and logging |
-| **Container Orchestration** | AKS / Kubernetes | Production workload hosting |
+| **Container Orchestration** | AKS / Kubernetes 1.35 | Production workload hosting |
+| **Ingress** | Application Gateway for Containers (AGC) | Gateway API-based ingress with built-in WAF |
 | **Infrastructure** | Bicep + Azure Developer CLI | Infrastructure as Code |
 | **CI/CD** | GitHub Actions | Build, test, and deployment pipelines |
 
@@ -140,7 +157,10 @@ ContosoInsurance.slnx                     # .NET 10 XML solution file
 | Docker Desktop | Latest | [Download](https://www.docker.com/products/docker-desktop) |
 | Azure Developer CLI | Latest | `winget install Microsoft.Azd` |
 | Azure CLI | Latest | `winget install Microsoft.AzureCLI` |
+| kubectl | 1.35+ | `az aks install-cli` |
 | IDE | VS 2022+ or VS Code | [Visual Studio](https://visualstudio.microsoft.com/) / [VS Code + C# Dev Kit](https://code.visualstudio.com/) |
+
+> **For Azure deployment:** Gateway API CRDs are installed automatically by the ALB Controller add-on when AGC is provisioned. No manual CRD installation is required for AKS.
 
 ### Run Locally with Aspire
 
@@ -187,12 +207,15 @@ azd up
 ```
 
 **Resources created:**
-- Azure Kubernetes Service (AKS) cluster in a private VNet
+- Azure Kubernetes Service (AKS) cluster (Kubernetes 1.35) in a private VNet
+- **Application Gateway for Containers (AGC)** — managed ingress with Gateway API
+- ALB Controller add-on (manages AGC lifecycle from within AKS)
 - Azure SQL Managed Instance (private endpoint)
 - Azure Container Registry (private)
-- Application Gateway with public IP (ingress)
 - Azure Key Vault for secrets management
 - Log Analytics workspace + Application Insights
+
+> **Note:** AGC replaces the legacy Application Gateway WAF v2 + AGIC pattern. The ALB Controller add-on automatically provisions the `Microsoft.ServiceNetworking/trafficControllers` resource and installs Gateway API CRDs. Traffic is routed using `Gateway` and `HTTPRoute` resources instead of `Ingress`.
 
 ---
 
@@ -237,7 +260,7 @@ The starting point: a fully cloud-native deployment on Azure.
 - **Registry**: Azure Container Registry (private, VNet-integrated)
 - **Monitoring**: Azure Monitor, Log Analytics, Application Insights
 - **Identity**: Microsoft Entra ID (Azure AD)
-- **Networking**: Application Gateway as the sole public entry point; all other services are private
+- **Networking**: Application Gateway for Containers (AGC) as the sole public entry point using Gateway API; all other services are private
 - **Infrastructure as Code**: Bicep templates deployed via Azure Developer CLI (`azd`)
 
 ### Branch: `local-connected` — Azure Local (Connected) 🔗
@@ -278,7 +301,8 @@ A **fully air-gapped deployment** with zero internet dependency.
 
 | Aspect | ☁️ `main` (Azure) | 🔗 `local-connected` | 🔒 `local-disconnected` |
 |---|---|---|---|
-| **Compute** | AKS (managed) | Arc-enabled K8s on Azure Local | Standalone K8s |
+| **Compute** | AKS (K8s 1.35, managed) | Arc-enabled K8s 1.35 on Azure Local | Standalone K8s 1.35 |
+| **Ingress** | AGC (Gateway API) | AGC via Arc (Gateway API) | NGINX / HAProxy (local) |
 | **Database** | Azure SQL MI (PaaS) | SQL MI on Azure Local (Arc) | Local SQL Server |
 | **Messaging** | RabbitMQ in AKS | RabbitMQ on Azure Local | RabbitMQ (local) |
 | **Container Registry** | Azure Container Registry | ACR + local sync | Local registry only |
@@ -288,6 +312,55 @@ A **fully air-gapped deployment** with zero internet dependency.
 | **CI/CD** | GitHub Actions → AKS | GitHub Actions → Arc | Offline / manual deploy |
 | **Internet** | ✅ Required | ⚡ Partial (management) | ❌ Not required |
 | **Azure Arc** | N/A | ✅ Enabled | ❌ Not used |
+
+---
+
+## 🔄 Why AGC?
+
+**Application Gateway for Containers (AGC)** is the successor to the Application Gateway Ingress Controller (AGIC) and the recommended ingress solution for AKS as of April 2026.
+
+### Deprecation Timeline
+
+| Component | Status | Date | Replacement |
+|---|---|---|---|
+| **AGIC** (Application Gateway Ingress Controller) | ⛔ Retired | March 2026 | Application Gateway for Containers (AGC) |
+| **NGINX Ingress Controller** (community) | ⛔ Retired | March 2026 | AGC or vendor-supported alternatives |
+| **Kubernetes Ingress API** | ⚠️ Maintenance mode | Ongoing | Gateway API (`Gateway` + `HTTPRoute`) |
+| **Kubernetes 1.30** | ⛔ End of life | March 2026 | Kubernetes 1.35 (current GA) |
+
+### AGC Advantages Over Legacy AGIC
+
+| Feature | AGIC (retired) | AGC |
+|---|---|---|
+| **API** | Kubernetes Ingress | Gateway API (Gateway + HTTPRoute) |
+| **Data plane** | Self-managed App Gateway | Fully managed by Azure |
+| **WAF** | Separate WAF v2 SKU required | Built-in WAF integration |
+| **Scaling** | Manual / autoscale rules | Automatic, near-instant scaling |
+| **Multi-site** | Limited | Native multi-site with Gateway listeners |
+| **Arc support** | ❌ None | ✅ Works with Arc-enabled K8s (connected mode) |
+| **Resource type** | `Microsoft.Network/applicationGateways` | `Microsoft.ServiceNetworking/trafficControllers` |
+
+### Key Insight: Unified Ingress Across Cloud and Edge
+
+With AGC, **the ingress layer is now identical** between cloud AKS (`main` branch) and on-prem Arc-enabled K8s (`local-connected` branch). AGC works as an Azure resource in both cases — the ALB Controller runs as an AKS add-on in the cloud and as an Arc extension on-prem. This dramatically simplifies hybrid architectures.
+
+> **AGC has been GA since November 2025.** It is the Azure-recommended path for all new AKS deployments and the required migration target for existing AGIC users.
+
+---
+
+## ⚠️ Deprecated Components
+
+The following components have been removed from this architecture as of the April 2026 refresh:
+
+| Component | Removed | Reason | Replacement |
+|---|---|---|---|
+| Application Gateway WAF v2 + AGIC | ✅ | AGIC retired March 2026 | AGC with built-in WAF |
+| NGINX Ingress Controller (community) | ✅ | Retired March 2026 | AGC (Gateway API) |
+| MetalLB | ✅ | Not needed with AGC | AGC manages load balancing |
+| Kubernetes `Ingress` resources | ✅ | Superseded by Gateway API | `Gateway` + `HTTPRoute` resources |
+| Kubernetes 1.30 | ✅ | End of life March 2026 | Kubernetes 1.35 |
+
+> **If you are following older tutorials** that reference AGIC, NGINX Ingress, or `Ingress` resources, those patterns are no longer supported. This repository uses the current Azure-recommended stack.
 
 ---
 
