@@ -1,0 +1,227 @@
+@page "/customers"
+@rendermode InteractiveServer
+@inject IHttpClientFactory HttpClientFactory
+
+<PageTitle>Customers — Contoso Insurance</PageTitle>
+
+<div class="ci-page">
+    <div class="ci-page-header">
+        <div>
+            <h1>Customers</h1>
+            <p>Customer directory and management</p>
+        </div>
+        <button class="btn-ci btn-primary-ci" @onclick="() => showNewCustomerForm = !showNewCustomerForm">
+            @(showNewCustomerForm ? "✕ Cancel" : "👤 Add Customer")
+        </button>
+    </div>
+
+    @if (errorMessage is not null)
+    {
+        <div class="ci-error">⚠️ @errorMessage</div>
+    }
+
+    @if (successMessage is not null)
+    {
+        <div class="ci-success-alert">✅ @successMessage</div>
+    }
+
+    @if (showNewCustomerForm)
+    {
+        <div class="ci-card ci-mb-3">
+            <div class="ci-card-header">
+                <h3>👤 Add New Customer</h3>
+            </div>
+            <div class="ci-card-body">
+                <EditForm Model="customerModel" OnValidSubmit="SubmitCustomer">
+                    <DataAnnotationsValidator />
+
+                    <div class="ci-grid ci-grid-2">
+                        <div class="ci-form-group">
+                            <label class="ci-label">First Name</label>
+                            <InputText class="ci-input" @bind-Value="customerModel.FirstName" placeholder="Enter first name" />
+                            <ValidationMessage For="() => customerModel.FirstName" />
+                        </div>
+
+                        <div class="ci-form-group">
+                            <label class="ci-label">Last Name</label>
+                            <InputText class="ci-input" @bind-Value="customerModel.LastName" placeholder="Enter last name" />
+                            <ValidationMessage For="() => customerModel.LastName" />
+                        </div>
+
+                        <div class="ci-form-group">
+                            <label class="ci-label">Email Address</label>
+                            <InputText class="ci-input" @bind-Value="customerModel.Email" placeholder="email@example.com" />
+                            <ValidationMessage For="() => customerModel.Email" />
+                        </div>
+
+                        <div class="ci-form-group">
+                            <label class="ci-label">Phone Number</label>
+                            <InputText class="ci-input" @bind-Value="customerModel.Phone" placeholder="(555) 123-4567" />
+                            <ValidationMessage For="() => customerModel.Phone" />
+                        </div>
+                    </div>
+
+                    <div class="ci-form-group">
+                        <label class="ci-label">Address</label>
+                        <InputText class="ci-input" @bind-Value="customerModel.Address" placeholder="Street address, city, state, zip" />
+                        <ValidationMessage For="() => customerModel.Address" />
+                    </div>
+
+                    <div style="display:flex;justify-content:flex-end;margin-top:1rem;gap:0.75rem">
+                        <button type="button" class="btn-ci btn-secondary-ci" @onclick="() => showNewCustomerForm = false">Cancel</button>
+                        <button type="submit" class="btn-ci btn-primary-ci" disabled="@isSubmitting">
+                            @(isSubmitting ? "Saving..." : "Add Customer →")
+                        </button>
+                    </div>
+                </EditForm>
+            </div>
+        </div>
+    }
+
+    @if (isLoading)
+    {
+        <div class="ci-loading">
+            <div class="ci-spinner"></div>
+            <span>Loading customers...</span>
+        </div>
+    }
+    else
+    {
+        <div class="ci-card">
+            <div class="ci-card-body" style="padding:0">
+                @if (!customers.Any())
+                {
+                    <div class="ci-empty">
+                        <div class="ci-empty-icon">👥</div>
+                        <p>No customers yet. Add your first customer above!</p>
+                    </div>
+                }
+                else
+                {
+                    <table class="ci-table">
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Email</th>
+                                <th>Phone</th>
+                                <th>Address</th>
+                                <th>Joined</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var customer in customers.OrderByDescending(c => c.CreatedAt))
+                            {
+                                <tr>
+                                    <td>
+                                        <div class="ci-flex ci-items-center ci-gap-1">
+                                            <div style="width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,var(--ci-teal),var(--ci-navy));display:flex;align-items:center;justify-content:center;color:white;font-weight:700;font-size:0.75rem;flex-shrink:0">
+                                                @customer.FirstName[..1]@customer.LastName[..1]
+                                            </div>
+                                            <div>
+                                                <div class="ci-fw-600">@customer.FirstName @customer.LastName</div>
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td class="ci-text-sm">@customer.Email</td>
+                                    <td class="ci-text-sm">@(customer.Phone ?? "—")</td>
+                                    <td class="ci-text-sm ci-text-muted" style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">@(customer.Address ?? "—")</td>
+                                    <td class="ci-text-sm ci-text-muted">@customer.CreatedAt.ToString("MMM dd, yyyy")</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private List<Customer> customers = [];
+    private bool isLoading = true;
+    private bool isSubmitting;
+    private bool showNewCustomerForm;
+    private string? errorMessage;
+    private string? successMessage;
+    private CustomerFormModel customerModel = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var client = HttpClientFactory.CreateClient("api");
+            customers = await client.GetFromJsonAsync<List<Customer>>("/api/customers") ?? [];
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Unable to load customers. ({ex.Message})";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task SubmitCustomer()
+    {
+        isSubmitting = true;
+        errorMessage = null;
+        successMessage = null;
+
+        try
+        {
+            var client = HttpClientFactory.CreateClient("api");
+            var newCustomer = new
+            {
+                FirstName = customerModel.FirstName,
+                LastName = customerModel.LastName,
+                Email = customerModel.Email,
+                Phone = customerModel.Phone,
+                Address = customerModel.Address
+            };
+
+            var response = await client.PostAsJsonAsync("/api/customers", newCustomer);
+            if (response.IsSuccessStatusCode)
+            {
+                successMessage = $"Customer {customerModel.FirstName} {customerModel.LastName} added successfully!";
+                showNewCustomerForm = false;
+                customerModel = new();
+                customers = await client.GetFromJsonAsync<List<Customer>>("/api/customers") ?? [];
+            }
+            else
+            {
+                errorMessage = $"Failed to add customer. Server returned {response.StatusCode}.";
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to add customer. ({ex.Message})";
+        }
+        finally
+        {
+            isSubmitting = false;
+        }
+    }
+
+    private class CustomerFormModel
+    {
+        [System.ComponentModel.DataAnnotations.Required(ErrorMessage = "First name is required")]
+        [System.ComponentModel.DataAnnotations.MaxLength(100)]
+        public string FirstName { get; set; } = string.Empty;
+
+        [System.ComponentModel.DataAnnotations.Required(ErrorMessage = "Last name is required")]
+        [System.ComponentModel.DataAnnotations.MaxLength(100)]
+        public string LastName { get; set; } = string.Empty;
+
+        [System.ComponentModel.DataAnnotations.Required(ErrorMessage = "Email is required")]
+        [System.ComponentModel.DataAnnotations.EmailAddress(ErrorMessage = "Please enter a valid email address")]
+        [System.ComponentModel.DataAnnotations.MaxLength(256)]
+        public string Email { get; set; } = string.Empty;
+
+        [System.ComponentModel.DataAnnotations.MaxLength(20)]
+        public string? Phone { get; set; }
+
+        [System.ComponentModel.DataAnnotations.MaxLength(500)]
+        public string? Address { get; set; }
+    }
+}

@@ -27,3 +27,22 @@
 - Network policies enforce zero-trust: default-deny + explicit allow per service pair
 - Key Vault uses RBAC (not access policies); deployer gets admin, AKS kubelet gets secrets-user
 
+## FULL BUILD MILESTONE (2026-04-25T03:20Z)
+
+✅ **ALL DELIVERABLES COMPLETE:**
+- Frontend: 8 interactive pages, 700+ line custom CSS, full API integration
+- Backend: 4 services, all CRUD+domain endpoints, seed data, RabbitMQ integration  
+- Infrastructure: 21 Bicep modules, K8s manifests, CI/CD pipeline, zero-trust policies
+- Testing: 72 tests (all passing), comprehensive coverage
+- Documentation: Comprehensive README, ASCII diagram, migration roadmap
+
+✅ **Build Status:** 0 errors, 0 warnings  
+✅ **Test Status:** 72 tests, 100% passing  
+✅ **Decisions:** Consolidated and team-aligned  
+✅ **Ready for:** Azure deployment, monitoring, scaling
+
+## Learnings
+
+- Modular Bicep design (module outputs referenced by consumers) allows safe infrastructure swaps (e.g., SQL DB→MI)
+- Private cluster + App Gateway pattern provides strong security posture while maintaining accessibility
+- Zero-trust network policies (Calico) require explicit allow rules but prevent lateral movement

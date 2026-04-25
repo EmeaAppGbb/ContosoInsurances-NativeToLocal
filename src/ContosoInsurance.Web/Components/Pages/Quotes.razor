@@ -1,0 +1,240 @@
+@page "/quotes"
+@rendermode InteractiveServer
+@inject IHttpClientFactory HttpClientFactory
+
+<PageTitle>Quotes — Contoso Insurance</PageTitle>
+
+<div class="ci-page">
+    <div class="ci-page-header">
+        <div>
+            <h1>Quotes</h1>
+            <p>View existing quotes and request new ones</p>
+        </div>
+        <button class="btn-ci btn-primary-ci" @onclick="() => showNewQuoteForm = !showNewQuoteForm">
+            @(showNewQuoteForm ? "✕ Cancel" : "💰 Request a Quote")
+        </button>
+    </div>
+
+    @if (errorMessage is not null)
+    {
+        <div class="ci-error">⚠️ @errorMessage</div>
+    }
+
+    @if (successMessage is not null)
+    {
+        <div class="ci-success-alert">✅ @successMessage</div>
+    }
+
+    @if (showNewQuoteForm)
+    {
+        <div class="ci-card ci-mb-3">
+            <div class="ci-card-header">
+                <h3>💰 Request a New Quote</h3>
+            </div>
+            <div class="ci-card-body">
+                <EditForm Model="quoteModel" OnValidSubmit="SubmitQuote">
+                    <DataAnnotationsValidator />
+
+                    <div class="ci-grid ci-grid-2">
+                        <div class="ci-form-group">
+                            <label class="ci-label">Customer</label>
+                            <InputSelect class="ci-select" @bind-Value="quoteModel.CustomerId">
+                                <option value="">Select a customer...</option>
+                                @foreach (var customer in customers)
+                                {
+                                    <option value="@customer.Id">@customer.FirstName @customer.LastName</option>
+                                }
+                            </InputSelect>
+                            <ValidationMessage For="() => quoteModel.CustomerId" />
+                        </div>
+
+                        <div class="ci-form-group">
+                            <label class="ci-label">Insurance Type</label>
+                            <InputSelect class="ci-select" @bind-Value="quoteModel.Type">
+                                @foreach (var type in Enum.GetValues<PolicyType>())
+                                {
+                                    <option value="@type">@GetTypeIcon(type) @type</option>
+                                }
+                            </InputSelect>
+                            <ValidationMessage For="() => quoteModel.Type" />
+                        </div>
+
+                        <div class="ci-form-group">
+                            <label class="ci-label">Desired Coverage Amount ($)</label>
+                            <InputNumber class="ci-input" @bind-Value="quoteModel.CoverageAmount" placeholder="Enter coverage amount" />
+                            <ValidationMessage For="() => quoteModel.CoverageAmount" />
+                        </div>
+                    </div>
+
+                    <div style="display:flex;justify-content:flex-end;margin-top:1rem;gap:0.75rem">
+                        <button type="button" class="btn-ci btn-secondary-ci" @onclick="() => showNewQuoteForm = false">Cancel</button>
+                        <button type="submit" class="btn-ci btn-primary-ci" disabled="@isSubmitting">
+                            @(isSubmitting ? "Submitting..." : "Request Quote →")
+                        </button>
+                    </div>
+                </EditForm>
+            </div>
+        </div>
+    }
+
+    @if (isLoading)
+    {
+        <div class="ci-loading">
+            <div class="ci-spinner"></div>
+            <span>Loading quotes...</span>
+        </div>
+    }
+    else
+    {
+        <div class="ci-card">
+            <div class="ci-card-body" style="padding:0">
+                @if (!quotes.Any())
+                {
+                    <div class="ci-empty">
+                        <div class="ci-empty-icon">💰</div>
+                        <p>No quotes yet. Request your first quote above!</p>
+                    </div>
+                }
+                else
+                {
+                    <table class="ci-table">
+                        <thead>
+                            <tr>
+                                <th>Quote #</th>
+                                <th>Type</th>
+                                <th>Est. Premium</th>
+                                <th>Coverage</th>
+                                <th>Status</th>
+                                <th>Created</th>
+                                <th>Expires</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var quote in quotes.OrderByDescending(q => q.CreatedAt))
+                            {
+                                <tr>
+                                    <td class="ci-fw-600">@quote.QuoteNumber</td>
+                                    <td><span class="ci-type-badge">@GetTypeIcon(quote.Type) @quote.Type</span></td>
+                                    <td class="ci-money">@quote.EstimatedPremium.ToString("C")/mo</td>
+                                    <td class="ci-money">@quote.CoverageAmount.ToString("C")</td>
+                                    <td>
+                                        @if (quote.IsAccepted)
+                                        {
+                                            <span class="ci-badge active"><span class="ci-badge-dot"></span>Accepted</span>
+                                        }
+                                        else if (quote.ExpiresAt < DateTime.UtcNow)
+                                        {
+                                            <span class="ci-badge expired"><span class="ci-badge-dot"></span>Expired</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="ci-badge pending"><span class="ci-badge-dot"></span>Pending</span>
+                                        }
+                                    </td>
+                                    <td class="ci-text-sm ci-text-muted">@quote.CreatedAt.ToString("MMM dd, yyyy")</td>
+                                    <td class="ci-text-sm ci-text-muted">@quote.ExpiresAt.ToString("MMM dd, yyyy")</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private List<Quote> quotes = [];
+    private List<Customer> customers = [];
+    private bool isLoading = true;
+    private bool isSubmitting;
+    private bool showNewQuoteForm;
+    private string? errorMessage;
+    private string? successMessage;
+    private QuoteFormModel quoteModel = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var client = HttpClientFactory.CreateClient("api");
+            var quotesTask = client.GetFromJsonAsync<List<Quote>>("/api/quotes");
+            var customersTask = client.GetFromJsonAsync<List<Customer>>("/api/customers");
+
+            await Task.WhenAll(quotesTask, customersTask);
+
+            quotes = quotesTask.Result ?? [];
+            customers = customersTask.Result ?? [];
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Unable to load quotes. ({ex.Message})";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task SubmitQuote()
+    {
+        isSubmitting = true;
+        errorMessage = null;
+        successMessage = null;
+
+        try
+        {
+            var client = HttpClientFactory.CreateClient("api");
+            var newQuote = new
+            {
+                CustomerId = Guid.Parse(quoteModel.CustomerId),
+                Type = quoteModel.Type,
+                CoverageAmount = quoteModel.CoverageAmount
+            };
+
+            var response = await client.PostAsJsonAsync("/api/quotes", newQuote);
+            if (response.IsSuccessStatusCode)
+            {
+                successMessage = "Quote request submitted successfully!";
+                showNewQuoteForm = false;
+                quoteModel = new();
+                quotes = await client.GetFromJsonAsync<List<Quote>>("/api/quotes") ?? [];
+            }
+            else
+            {
+                errorMessage = $"Failed to request quote. Server returned {response.StatusCode}.";
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to request quote. ({ex.Message})";
+        }
+        finally
+        {
+            isSubmitting = false;
+        }
+    }
+
+    private static string GetTypeIcon(PolicyType type) => type switch
+    {
+        PolicyType.Auto => "🚗",
+        PolicyType.Home => "🏠",
+        PolicyType.Life => "❤️",
+        PolicyType.Health => "🏥",
+        PolicyType.Travel => "✈️",
+        PolicyType.Business => "🏢",
+        _ => "📋"
+    };
+
+    private class QuoteFormModel
+    {
+        [System.ComponentModel.DataAnnotations.Required(ErrorMessage = "Please select a customer")]
+        public string CustomerId { get; set; } = string.Empty;
+
+        public PolicyType Type { get; set; } = PolicyType.Auto;
+
+        [System.ComponentModel.DataAnnotations.Required(ErrorMessage = "Coverage amount is required")]
+        [System.ComponentModel.DataAnnotations.Range(1000, 10000000, ErrorMessage = "Coverage must be between $1,000 and $10,000,000")]
+        public decimal CoverageAmount { get; set; } = 100000;
+    }
+}

@@ -1,0 +1,142 @@
+@page "/policies"
+@rendermode InteractiveServer
+@inject IHttpClientFactory HttpClientFactory
+
+<PageTitle>Policies — Contoso Insurance</PageTitle>
+
+<div class="ci-page">
+    <div class="ci-page-header">
+        <div>
+            <h1>Policies</h1>
+            <p>Manage and view all insurance policies</p>
+        </div>
+    </div>
+
+    @if (errorMessage is not null)
+    {
+        <div class="ci-error">⚠️ @errorMessage</div>
+    }
+
+    @if (isLoading)
+    {
+        <div class="ci-loading">
+            <div class="ci-spinner"></div>
+            <span>Loading policies...</span>
+        </div>
+    }
+    else
+    {
+        <div class="ci-filters">
+            <span class="ci-text-sm ci-fw-600 ci-text-muted" style="margin-right:0.25rem">Type:</span>
+            <button class="ci-filter-chip @(typeFilter is null ? "active" : "")" @onclick="() => typeFilter = null">All</button>
+            @foreach (var type in Enum.GetValues<PolicyType>())
+            {
+                <button class="ci-filter-chip @(typeFilter == type ? "active" : "")" @onclick="() => typeFilter = type">
+                    @GetTypeIcon(type) @type
+                </button>
+            }
+        </div>
+
+        <div class="ci-filters">
+            <span class="ci-text-sm ci-fw-600 ci-text-muted" style="margin-right:0.25rem">Status:</span>
+            <button class="ci-filter-chip @(statusFilter is null ? "active" : "")" @onclick="() => statusFilter = null">All</button>
+            @foreach (var status in Enum.GetValues<PolicyStatus>())
+            {
+                <button class="ci-filter-chip @(statusFilter == status ? "active" : "")" @onclick="() => statusFilter = status">@status</button>
+            }
+        </div>
+
+        <div class="ci-card">
+            <div class="ci-card-body" style="padding:0">
+                @if (!FilteredPolicies.Any())
+                {
+                    <div class="ci-empty">
+                        <div class="ci-empty-icon">📋</div>
+                        <p>No policies found matching your filters.</p>
+                    </div>
+                }
+                else
+                {
+                    <table class="ci-table">
+                        <thead>
+                            <tr>
+                                <th>Policy #</th>
+                                <th>Type</th>
+                                <th>Status</th>
+                                <th>Premium</th>
+                                <th>Coverage</th>
+                                <th>Period</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var policy in FilteredPolicies)
+                            {
+                                <tr>
+                                    <td class="ci-fw-600">@policy.PolicyNumber</td>
+                                    <td><span class="ci-type-badge">@GetTypeIcon(policy.Type) @policy.Type</span></td>
+                                    <td><span class="ci-badge @GetStatusClass(policy.Status)"><span class="ci-badge-dot"></span>@policy.Status</span></td>
+                                    <td class="ci-money">@policy.PremiumAmount.ToString("C")</td>
+                                    <td class="ci-money">@policy.CoverageAmount.ToString("C")</td>
+                                    <td class="ci-text-sm ci-text-muted">@policy.StartDate.ToString("MMM dd, yyyy") — @policy.EndDate.ToString("MMM dd, yyyy")</td>
+                                    <td><a href="policies/@policy.Id" class="btn-ci btn-sm-ci btn-secondary-ci">View</a></td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private List<Policy> policies = [];
+    private bool isLoading = true;
+    private string? errorMessage;
+    private PolicyType? typeFilter;
+    private PolicyStatus? statusFilter;
+
+    private IEnumerable<Policy> FilteredPolicies => policies
+        .Where(p => typeFilter is null || p.Type == typeFilter)
+        .Where(p => statusFilter is null || p.Status == statusFilter)
+        .OrderByDescending(p => p.CreatedAt);
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var client = HttpClientFactory.CreateClient("api");
+            policies = await client.GetFromJsonAsync<List<Policy>>("/api/policies") ?? [];
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Unable to load policies. ({ex.Message})";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private static string GetStatusClass(PolicyStatus status) => status switch
+    {
+        PolicyStatus.Active => "active",
+        PolicyStatus.Draft => "draft",
+        PolicyStatus.Expired => "expired",
+        PolicyStatus.Cancelled => "cancelled",
+        PolicyStatus.Suspended => "suspended",
+        _ => ""
+    };
+
+    private static string GetTypeIcon(PolicyType type) => type switch
+    {
+        PolicyType.Auto => "🚗",
+        PolicyType.Home => "🏠",
+        PolicyType.Life => "❤️",
+        PolicyType.Health => "🏥",
+        PolicyType.Travel => "✈️",
+        PolicyType.Business => "🏢",
+        _ => "📋"
+    };
+}

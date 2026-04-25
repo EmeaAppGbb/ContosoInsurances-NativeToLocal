@@ -1,0 +1,252 @@
+@page "/dashboard"
+@rendermode InteractiveServer
+@inject IHttpClientFactory HttpClientFactory
+
+<PageTitle>Dashboard — Contoso Insurance</PageTitle>
+
+<div class="ci-page">
+    <div class="ci-page-header">
+        <div>
+            <h1>Dashboard</h1>
+            <p>Overview of your insurance operations</p>
+        </div>
+        <div class="ci-flex ci-gap-1">
+            <a href="claims/new" class="btn-ci btn-primary-ci">📝 File a Claim</a>
+            <a href="quotes" class="btn-ci btn-secondary-ci">💰 New Quote</a>
+        </div>
+    </div>
+
+    @if (errorMessage is not null)
+    {
+        <div class="ci-error">⚠️ @errorMessage</div>
+    }
+
+    @if (isLoading)
+    {
+        <div class="ci-loading">
+            <div class="ci-spinner"></div>
+            <span>Loading dashboard...</span>
+        </div>
+    }
+    else
+    {
+        <div class="ci-grid ci-grid-4 ci-mb-3">
+            <div class="ci-stat-card">
+                <div class="ci-stat-icon navy">📋</div>
+                <div class="ci-stat-content">
+                    <h4>Total Policies</h4>
+                    <div class="ci-stat-value">@policies.Count</div>
+                </div>
+            </div>
+            <div class="ci-stat-card">
+                <div class="ci-stat-icon teal">✅</div>
+                <div class="ci-stat-content">
+                    <h4>Active Policies</h4>
+                    <div class="ci-stat-value">@policies.Count(p => p.Status == PolicyStatus.Active)</div>
+                </div>
+            </div>
+            <div class="ci-stat-card">
+                <div class="ci-stat-icon gold">📝</div>
+                <div class="ci-stat-content">
+                    <h4>Open Claims</h4>
+                    <div class="ci-stat-value">@claims.Count(c => c.Status is ClaimStatus.Submitted or ClaimStatus.UnderReview)</div>
+                </div>
+            </div>
+            <div class="ci-stat-card">
+                <div class="ci-stat-icon success">💰</div>
+                <div class="ci-stat-content">
+                    <h4>Pending Quotes</h4>
+                    <div class="ci-stat-value">@quotes.Count(q => !q.IsAccepted && q.ExpiresAt > DateTime.UtcNow)</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="ci-grid ci-grid-2 ci-mb-3">
+            <div class="ci-card">
+                <div class="ci-card-header">
+                    <h3>📊 Recent Claims</h3>
+                    <a href="claims" class="btn-ci btn-sm-ci btn-secondary-ci">View All</a>
+                </div>
+                <div class="ci-card-body" style="padding:0">
+                    @if (claims.Count == 0)
+                    {
+                        <div class="ci-empty" style="padding:2rem"><div class="ci-empty-icon">📝</div>No claims filed yet</div>
+                    }
+                    else
+                    {
+                        <table class="ci-table">
+                            <thead>
+                                <tr>
+                                    <th>Claim #</th>
+                                    <th>Status</th>
+                                    <th>Amount</th>
+                                    <th>Filed</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var claim in claims.OrderByDescending(c => c.FiledDate).Take(5))
+                                {
+                                    <tr>
+                                        <td class="ci-fw-600">@claim.ClaimNumber</td>
+                                        <td><span class="ci-badge @GetClaimStatusClass(claim.Status)"><span class="ci-badge-dot"></span>@FormatClaimStatus(claim.Status)</span></td>
+                                        <td class="ci-money">@claim.Amount.ToString("C")</td>
+                                        <td class="ci-text-muted ci-text-sm">@claim.FiledDate.ToString("MMM dd, yyyy")</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    }
+                </div>
+            </div>
+
+            <div class="ci-card">
+                <div class="ci-card-header">
+                    <h3>💰 Recent Quotes</h3>
+                    <a href="quotes" class="btn-ci btn-sm-ci btn-secondary-ci">View All</a>
+                </div>
+                <div class="ci-card-body" style="padding:0">
+                    @if (quotes.Count == 0)
+                    {
+                        <div class="ci-empty" style="padding:2rem"><div class="ci-empty-icon">💰</div>No quotes yet</div>
+                    }
+                    else
+                    {
+                        <table class="ci-table">
+                            <thead>
+                                <tr>
+                                    <th>Quote #</th>
+                                    <th>Type</th>
+                                    <th>Premium</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var quote in quotes.OrderByDescending(q => q.CreatedAt).Take(5))
+                                {
+                                    <tr>
+                                        <td class="ci-fw-600">@quote.QuoteNumber</td>
+                                        <td><span class="ci-type-badge">@GetTypeIcon(quote.Type) @quote.Type</span></td>
+                                        <td class="ci-money">@quote.EstimatedPremium.ToString("C")/mo</td>
+                                        <td>
+                                            @if (quote.IsAccepted)
+                                            {
+                                                <span class="ci-badge active"><span class="ci-badge-dot"></span>Accepted</span>
+                                            }
+                                            else if (quote.ExpiresAt < DateTime.UtcNow)
+                                            {
+                                                <span class="ci-badge expired"><span class="ci-badge-dot"></span>Expired</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="ci-badge pending"><span class="ci-badge-dot"></span>Pending</span>
+                                            }
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    }
+                </div>
+            </div>
+        </div>
+
+        <div class="ci-card">
+            <div class="ci-card-header">
+                <h3>⚡ Quick Actions</h3>
+            </div>
+            <div class="ci-card-body">
+                <div class="ci-grid ci-grid-4">
+                    <a href="claims/new" class="ci-action-card">
+                        <div class="icon" style="background:rgba(8,145,178,0.1);color:var(--ci-teal)">📝</div>
+                        <div>
+                            <h4>File a Claim</h4>
+                            <p>Submit a new insurance claim</p>
+                        </div>
+                    </a>
+                    <a href="quotes" class="ci-action-card">
+                        <div class="icon" style="background:rgba(217,119,6,0.1);color:var(--ci-gold)">💰</div>
+                        <div>
+                            <h4>Get a Quote</h4>
+                            <p>Request a new insurance quote</p>
+                        </div>
+                    </a>
+                    <a href="policies" class="ci-action-card">
+                        <div class="icon" style="background:rgba(15,43,70,0.1);color:var(--ci-navy)">📋</div>
+                        <div>
+                            <h4>View Policies</h4>
+                            <p>Manage your insurance policies</p>
+                        </div>
+                    </a>
+                    <a href="customers" class="ci-action-card">
+                        <div class="icon" style="background:rgba(5,150,105,0.1);color:var(--ci-success)">👥</div>
+                        <div>
+                            <h4>Customers</h4>
+                            <p>View customer directory</p>
+                        </div>
+                    </a>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private List<Policy> policies = [];
+    private List<Claim> claims = [];
+    private List<Quote> quotes = [];
+    private bool isLoading = true;
+    private string? errorMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var client = HttpClientFactory.CreateClient("api");
+            var policiesTask = client.GetFromJsonAsync<List<Policy>>("/api/policies");
+            var claimsTask = client.GetFromJsonAsync<List<Claim>>("/api/claims");
+            var quotesTask = client.GetFromJsonAsync<List<Quote>>("/api/quotes");
+
+            await Task.WhenAll(policiesTask, claimsTask, quotesTask);
+
+            policies = policiesTask.Result ?? [];
+            claims = claimsTask.Result ?? [];
+            quotes = quotesTask.Result ?? [];
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Unable to load dashboard data. Please ensure the API is running. ({ex.Message})";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private static string GetClaimStatusClass(ClaimStatus status) => status switch
+    {
+        ClaimStatus.Submitted => "submitted",
+        ClaimStatus.UnderReview => "underreview",
+        ClaimStatus.Approved => "approved",
+        ClaimStatus.Denied => "denied",
+        ClaimStatus.Paid => "paid",
+        ClaimStatus.Closed => "closed",
+        _ => ""
+    };
+
+    private static string FormatClaimStatus(ClaimStatus status) => status switch
+    {
+        ClaimStatus.UnderReview => "Under Review",
+        _ => status.ToString()
+    };
+
+    private static string GetTypeIcon(PolicyType type) => type switch
+    {
+        PolicyType.Auto => "🚗",
+        PolicyType.Home => "🏠",
+        PolicyType.Life => "❤️",
+        PolicyType.Health => "🏥",
+        PolicyType.Travel => "✈️",
+        PolicyType.Business => "🏢",
+        _ => "📋"
+    };
+}

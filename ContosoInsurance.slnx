@@ -1,0 +1,17 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/ContosoInsurance.Api/ContosoInsurance.Api.csproj" />
+    <Project Path="src/ContosoInsurance.AppHost/ContosoInsurance.AppHost.csproj" />
+    <Project Path="src/ContosoInsurance.Data/ContosoInsurance.Data.csproj" />
+    <Project Path="src/ContosoInsurance.ServiceDefaults/ContosoInsurance.ServiceDefaults.csproj" />
+    <Project Path="src/ContosoInsurance.Web/ContosoInsurance.Web.csproj" />
+    <Project Path="src/ContosoInsurance.Worker/ContosoInsurance.Worker.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/ContosoInsurance.Api.Tests/ContosoInsurance.Api.Tests.csproj" />
+    <Project Path="tests/ContosoInsurance.AppHost.Tests/ContosoInsurance.AppHost.Tests.csproj" />
+    <Project Path="tests/ContosoInsurance.Data.Tests/ContosoInsurance.Data.Tests.csproj" />
+    <Project Path="tests/ContosoInsurance.Web.Tests/ContosoInsurance.Web.Tests.csproj" />
+    <Project Path="tests/ContosoInsurance.Worker.Tests/ContosoInsurance.Worker.Tests.csproj" />
+  </Folder>
+</Solution>

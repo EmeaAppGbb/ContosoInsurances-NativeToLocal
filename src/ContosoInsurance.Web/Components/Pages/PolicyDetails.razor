@@ -1,0 +1,183 @@
+@page "/policies/{Id:guid}"
+@rendermode InteractiveServer
+@inject IHttpClientFactory HttpClientFactory
+
+<PageTitle>Policy Details — Contoso Insurance</PageTitle>
+
+<div class="ci-page">
+    @if (errorMessage is not null)
+    {
+        <div class="ci-error">⚠️ @errorMessage</div>
+    }
+
+    @if (isLoading)
+    {
+        <div class="ci-loading">
+            <div class="ci-spinner"></div>
+            <span>Loading policy details...</span>
+        </div>
+    }
+    else if (policy is not null)
+    {
+        <div class="ci-page-header">
+            <div>
+                <div class="ci-flex ci-items-center ci-gap-2 ci-mb-1">
+                    <a href="policies" class="ci-text-muted ci-text-sm" style="text-decoration:none">← Back to Policies</a>
+                </div>
+                <h1>Policy @policy.PolicyNumber</h1>
+                <p>@GetTypeIcon(policy.Type) @policy.Type Insurance</p>
+            </div>
+            <span class="ci-badge @GetStatusClass(policy.Status)" style="font-size:0.875rem;padding:0.5rem 1.25rem">
+                <span class="ci-badge-dot"></span>@policy.Status
+            </span>
+        </div>
+
+        <div class="ci-grid ci-grid-4 ci-mb-3">
+            <div class="ci-stat-card">
+                <div class="ci-stat-icon teal">💵</div>
+                <div class="ci-stat-content">
+                    <h4>Monthly Premium</h4>
+                    <div class="ci-stat-value" style="font-size:1.5rem">@policy.PremiumAmount.ToString("C")</div>
+                </div>
+            </div>
+            <div class="ci-stat-card">
+                <div class="ci-stat-icon navy">🛡️</div>
+                <div class="ci-stat-content">
+                    <h4>Coverage Amount</h4>
+                    <div class="ci-stat-value" style="font-size:1.5rem">@policy.CoverageAmount.ToString("C")</div>
+                </div>
+            </div>
+            <div class="ci-stat-card">
+                <div class="ci-stat-icon success">📅</div>
+                <div class="ci-stat-content">
+                    <h4>Start Date</h4>
+                    <div class="ci-stat-value" style="font-size:1.25rem">@policy.StartDate.ToString("MMM dd, yyyy")</div>
+                </div>
+            </div>
+            <div class="ci-stat-card">
+                <div class="ci-stat-icon gold">📅</div>
+                <div class="ci-stat-content">
+                    <h4>End Date</h4>
+                    <div class="ci-stat-value" style="font-size:1.25rem">@policy.EndDate.ToString("MMM dd, yyyy")</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="ci-card ci-mb-3">
+            <div class="ci-card-header">
+                <h3>📝 Claims for This Policy</h3>
+                <a href="claims/new" class="btn-ci btn-sm-ci btn-primary-ci">File a Claim</a>
+            </div>
+            <div class="ci-card-body" style="padding:0">
+                @if (!policyClaims.Any())
+                {
+                    <div class="ci-empty" style="padding:2rem">
+                        <div class="ci-empty-icon">✅</div>
+                        <p>No claims filed against this policy.</p>
+                    </div>
+                }
+                else
+                {
+                    <table class="ci-table">
+                        <thead>
+                            <tr>
+                                <th>Claim #</th>
+                                <th>Status</th>
+                                <th>Description</th>
+                                <th>Amount</th>
+                                <th>Incident Date</th>
+                                <th>Filed Date</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var claim in policyClaims.OrderByDescending(c => c.FiledDate))
+                            {
+                                <tr>
+                                    <td class="ci-fw-600">@claim.ClaimNumber</td>
+                                    <td><span class="ci-badge @GetClaimStatusClass(claim.Status)"><span class="ci-badge-dot"></span>@FormatClaimStatus(claim.Status)</span></td>
+                                    <td class="ci-text-sm" style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">@claim.Description</td>
+                                    <td class="ci-money">@claim.Amount.ToString("C")</td>
+                                    <td class="ci-text-sm ci-text-muted">@claim.IncidentDate.ToString("MMM dd, yyyy")</td>
+                                    <td class="ci-text-sm ci-text-muted">@claim.FiledDate.ToString("MMM dd, yyyy")</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+
+    private Policy? policy;
+    private List<Claim> policyClaims = [];
+    private bool isLoading = true;
+    private string? errorMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var client = HttpClientFactory.CreateClient("api");
+            policy = await client.GetFromJsonAsync<Policy>($"/api/policies/{Id}");
+
+            if (policy is null)
+            {
+                errorMessage = "Policy not found.";
+                return;
+            }
+
+            var allClaims = await client.GetFromJsonAsync<List<Claim>>("/api/claims") ?? [];
+            policyClaims = allClaims.Where(c => c.PolicyId == Id).ToList();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Unable to load policy details. ({ex.Message})";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private static string GetStatusClass(PolicyStatus status) => status switch
+    {
+        PolicyStatus.Active => "active",
+        PolicyStatus.Draft => "draft",
+        PolicyStatus.Expired => "expired",
+        PolicyStatus.Cancelled => "cancelled",
+        PolicyStatus.Suspended => "suspended",
+        _ => ""
+    };
+
+    private static string GetClaimStatusClass(ClaimStatus status) => status switch
+    {
+        ClaimStatus.Submitted => "submitted",
+        ClaimStatus.UnderReview => "underreview",
+        ClaimStatus.Approved => "approved",
+        ClaimStatus.Denied => "denied",
+        ClaimStatus.Paid => "paid",
+        ClaimStatus.Closed => "closed",
+        _ => ""
+    };
+
+    private static string FormatClaimStatus(ClaimStatus status) => status switch
+    {
+        ClaimStatus.UnderReview => "Under Review",
+        _ => status.ToString()
+    };
+
+    private static string GetTypeIcon(PolicyType type) => type switch
+    {
+        PolicyType.Auto => "🚗",
+        PolicyType.Home => "🏠",
+        PolicyType.Life => "❤️",
+        PolicyType.Health => "🏥",
+        PolicyType.Travel => "✈️",
+        PolicyType.Business => "🏢",
+        _ => "📋"
+    };
+}

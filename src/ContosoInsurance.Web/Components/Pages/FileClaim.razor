@@ -1,0 +1,274 @@
+@page "/claims/new"
+@rendermode InteractiveServer
+@inject IHttpClientFactory HttpClientFactory
+@inject NavigationManager Navigation
+
+<PageTitle>File a Claim — Contoso Insurance</PageTitle>
+
+<div class="ci-page">
+    <div class="ci-page-header">
+        <div>
+            <div class="ci-mb-1">
+                <a href="claims" class="ci-text-muted ci-text-sm" style="text-decoration:none">← Back to Claims</a>
+            </div>
+            <h1>File a New Claim</h1>
+            <p>Submit an insurance claim in three easy steps</p>
+        </div>
+    </div>
+
+    @if (errorMessage is not null)
+    {
+        <div class="ci-error">⚠️ @errorMessage</div>
+    }
+
+    @if (successMessage is not null)
+    {
+        <div class="ci-success-alert">✅ @successMessage</div>
+    }
+
+    <!-- Step Indicator -->
+    <div class="ci-steps ci-mb-3">
+        <div class="ci-step @(currentStep >= 1 ? (currentStep > 1 ? "completed" : "active") : "")">
+            <span class="ci-step-number">@(currentStep > 1 ? "✓" : "1")</span>
+            <span>Select Policy</span>
+        </div>
+        <div class="ci-step-line @(currentStep > 1 ? "completed" : "")"></div>
+        <div class="ci-step @(currentStep >= 2 ? (currentStep > 2 ? "completed" : "active") : "")">
+            <span class="ci-step-number">@(currentStep > 2 ? "✓" : "2")</span>
+            <span>Incident Details</span>
+        </div>
+        <div class="ci-step-line @(currentStep > 2 ? "completed" : "")"></div>
+        <div class="ci-step @(currentStep == 3 ? "active" : "")">
+            <span class="ci-step-number">3</span>
+            <span>Review & Submit</span>
+        </div>
+    </div>
+
+    @if (isLoadingPolicies)
+    {
+        <div class="ci-loading">
+            <div class="ci-spinner"></div>
+            <span>Loading policies...</span>
+        </div>
+    }
+    else
+    {
+        <div class="ci-card">
+            <div class="ci-card-body">
+                @if (currentStep == 1)
+                {
+                    <h3 style="margin-bottom:1.5rem">Select the Policy for This Claim</h3>
+
+                    @if (!policies.Any())
+                    {
+                        <div class="ci-empty">
+                            <div class="ci-empty-icon">📋</div>
+                            <p>No policies available. You need an active policy to file a claim.</p>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="ci-grid ci-grid-2">
+                            @foreach (var policy in policies.Where(p => p.Status == PolicyStatus.Active))
+                            {
+                                <div class="ci-action-card @(selectedPolicyId == policy.Id ? "selected" : "")"
+                                     style="@(selectedPolicyId == policy.Id ? "border-color:var(--ci-teal);background:rgba(8,145,178,0.03)" : "")"
+                                     @onclick="() => selectedPolicyId = policy.Id">
+                                    <div class="icon" style="background:rgba(8,145,178,0.1);font-size:1.5rem">
+                                        @GetTypeIcon(policy.Type)
+                                    </div>
+                                    <div style="flex:1">
+                                        <h4>@policy.PolicyNumber</h4>
+                                        <p>@policy.Type Insurance — Coverage: @policy.CoverageAmount.ToString("C")</p>
+                                    </div>
+                                    @if (selectedPolicyId == policy.Id)
+                                    {
+                                        <span style="color:var(--ci-teal);font-size:1.25rem">✓</span>
+                                    }
+                                </div>
+                            }
+                        </div>
+
+                        <div style="display:flex;justify-content:flex-end;margin-top:2rem">
+                            <button class="btn-ci btn-primary-ci" disabled="@(selectedPolicyId == Guid.Empty)" @onclick="() => currentStep = 2">
+                                Continue →
+                            </button>
+                        </div>
+                    }
+                }
+                else if (currentStep == 2)
+                {
+                    <h3 style="margin-bottom:1.5rem">Describe the Incident</h3>
+
+                    <EditForm Model="claimModel" OnValidSubmit="GoToReview">
+                        <DataAnnotationsValidator />
+
+                        <div class="ci-form-group">
+                            <label class="ci-label">Incident Date</label>
+                            <InputDate class="ci-input" @bind-Value="claimModel.IncidentDate" />
+                            <ValidationMessage For="() => claimModel.IncidentDate" />
+                        </div>
+
+                        <div class="ci-form-group">
+                            <label class="ci-label">Claim Amount ($)</label>
+                            <InputNumber class="ci-input" @bind-Value="claimModel.Amount" placeholder="Enter claim amount" />
+                            <ValidationMessage For="() => claimModel.Amount" />
+                        </div>
+
+                        <div class="ci-form-group">
+                            <label class="ci-label">Description of Incident</label>
+                            <InputTextArea class="ci-textarea" @bind-Value="claimModel.Description" placeholder="Describe what happened in detail..." rows="5" />
+                            <ValidationMessage For="() => claimModel.Description" />
+                        </div>
+
+                        <div style="display:flex;justify-content:space-between;margin-top:2rem">
+                            <button type="button" class="btn-ci btn-secondary-ci" @onclick="() => currentStep = 1">← Back</button>
+                            <button type="submit" class="btn-ci btn-primary-ci">Review Claim →</button>
+                        </div>
+                    </EditForm>
+                }
+                else if (currentStep == 3)
+                {
+                    <h3 style="margin-bottom:1.5rem">Review Your Claim</h3>
+
+                    <div class="ci-grid ci-grid-2 ci-mb-3">
+                        <div>
+                            <div class="ci-text-sm ci-text-muted ci-fw-600" style="text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.25rem">Policy</div>
+                            <div class="ci-fw-700">@SelectedPolicy?.PolicyNumber</div>
+                            <div class="ci-text-sm ci-text-muted">@SelectedPolicy?.Type Insurance</div>
+                        </div>
+                        <div>
+                            <div class="ci-text-sm ci-text-muted ci-fw-600" style="text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.25rem">Claim Amount</div>
+                            <div class="ci-fw-700 ci-money" style="font-size:1.25rem">@claimModel.Amount.ToString("C")</div>
+                        </div>
+                        <div>
+                            <div class="ci-text-sm ci-text-muted ci-fw-600" style="text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.25rem">Incident Date</div>
+                            <div class="ci-fw-600">@claimModel.IncidentDate.ToString("MMMM dd, yyyy")</div>
+                        </div>
+                        <div>
+                            <div class="ci-text-sm ci-text-muted ci-fw-600" style="text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.25rem">Filing Date</div>
+                            <div class="ci-fw-600">@DateTime.UtcNow.ToString("MMMM dd, yyyy")</div>
+                        </div>
+                    </div>
+
+                    <div class="ci-mb-3">
+                        <div class="ci-text-sm ci-text-muted ci-fw-600" style="text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.25rem">Description</div>
+                        <div style="background:var(--ci-gray-50);border-radius:var(--ci-radius);padding:1rem;font-size:0.9375rem;line-height:1.7">
+                            @claimModel.Description
+                        </div>
+                    </div>
+
+                    <div style="display:flex;justify-content:space-between;margin-top:2rem">
+                        <button class="btn-ci btn-secondary-ci" @onclick="() => currentStep = 2">← Edit Details</button>
+                        <button class="btn-ci btn-primary-ci btn-lg-ci" disabled="@isSubmitting" @onclick="SubmitClaim">
+                            @if (isSubmitting)
+                            {
+                                <span>Submitting...</span>
+                            }
+                            else
+                            {
+                                <span>Submit Claim ✓</span>
+                            }
+                        </button>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private List<Policy> policies = [];
+    private Guid selectedPolicyId;
+    private ClaimFormModel claimModel = new();
+    private int currentStep = 1;
+    private bool isLoadingPolicies = true;
+    private bool isSubmitting;
+    private string? errorMessage;
+    private string? successMessage;
+
+    private Policy? SelectedPolicy => policies.FirstOrDefault(p => p.Id == selectedPolicyId);
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var client = HttpClientFactory.CreateClient("api");
+            policies = await client.GetFromJsonAsync<List<Policy>>("/api/policies") ?? [];
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Unable to load policies. ({ex.Message})";
+        }
+        finally
+        {
+            isLoadingPolicies = false;
+        }
+    }
+
+    private void GoToReview() => currentStep = 3;
+
+    private async Task SubmitClaim()
+    {
+        isSubmitting = true;
+        errorMessage = null;
+
+        try
+        {
+            var client = HttpClientFactory.CreateClient("api");
+            var newClaim = new
+            {
+                PolicyId = selectedPolicyId,
+                Description = claimModel.Description,
+                Amount = claimModel.Amount,
+                IncidentDate = claimModel.IncidentDate
+            };
+
+            var response = await client.PostAsJsonAsync("/api/claims", newClaim);
+            if (response.IsSuccessStatusCode)
+            {
+                successMessage = "Claim submitted successfully! You will be redirected to the claims page.";
+                await Task.Delay(2000);
+                Navigation.NavigateTo("/claims");
+            }
+            else
+            {
+                errorMessage = $"Failed to submit claim. Server returned {response.StatusCode}.";
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to submit claim. ({ex.Message})";
+        }
+        finally
+        {
+            isSubmitting = false;
+        }
+    }
+
+    private static string GetTypeIcon(PolicyType type) => type switch
+    {
+        PolicyType.Auto => "🚗",
+        PolicyType.Home => "🏠",
+        PolicyType.Life => "❤️",
+        PolicyType.Health => "🏥",
+        PolicyType.Travel => "✈️",
+        PolicyType.Business => "🏢",
+        _ => "📋"
+    };
+
+    private class ClaimFormModel
+    {
+        [System.ComponentModel.DataAnnotations.Required(ErrorMessage = "Incident date is required")]
+        public DateTime IncidentDate { get; set; } = DateTime.Today;
+
+        [System.ComponentModel.DataAnnotations.Required(ErrorMessage = "Claim amount is required")]
+        [System.ComponentModel.DataAnnotations.Range(0.01, 10000000, ErrorMessage = "Amount must be greater than $0")]
+        public decimal Amount { get; set; }
+
+        [System.ComponentModel.DataAnnotations.Required(ErrorMessage = "Description is required")]
+        [System.ComponentModel.DataAnnotations.MinLength(10, ErrorMessage = "Please provide at least 10 characters")]
+        [System.ComponentModel.DataAnnotations.MaxLength(1000)]
+        public string Description { get; set; } = string.Empty;
+    }
+}

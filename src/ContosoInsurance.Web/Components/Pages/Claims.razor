@@ -1,0 +1,130 @@
+@page "/claims"
+@rendermode InteractiveServer
+@inject IHttpClientFactory HttpClientFactory
+
+<PageTitle>Claims — Contoso Insurance</PageTitle>
+
+<div class="ci-page">
+    <div class="ci-page-header">
+        <div>
+            <h1>Claims</h1>
+            <p>Track and manage insurance claims</p>
+        </div>
+        <a href="claims/new" class="btn-ci btn-primary-ci">📝 File a New Claim</a>
+    </div>
+
+    @if (errorMessage is not null)
+    {
+        <div class="ci-error">⚠️ @errorMessage</div>
+    }
+
+    @if (isLoading)
+    {
+        <div class="ci-loading">
+            <div class="ci-spinner"></div>
+            <span>Loading claims...</span>
+        </div>
+    }
+    else
+    {
+        <div class="ci-filters">
+            <span class="ci-text-sm ci-fw-600 ci-text-muted" style="margin-right:0.25rem">Status:</span>
+            <button class="ci-filter-chip @(statusFilter is null ? "active" : "")" @onclick="() => statusFilter = null">All (@claims.Count)</button>
+            @foreach (var status in Enum.GetValues<ClaimStatus>())
+            {
+                var count = claims.Count(c => c.Status == status);
+                <button class="ci-filter-chip @(statusFilter == status ? "active" : "")" @onclick="() => statusFilter = status">
+                    @FormatClaimStatus(status) (@count)
+                </button>
+            }
+        </div>
+
+        <div class="ci-card">
+            <div class="ci-card-body" style="padding:0">
+                @if (!FilteredClaims.Any())
+                {
+                    <div class="ci-empty">
+                        <div class="ci-empty-icon">📝</div>
+                        <p>No claims found matching your filters.</p>
+                        <a href="claims/new" class="btn-ci btn-primary-ci ci-mt-2">File Your First Claim</a>
+                    </div>
+                }
+                else
+                {
+                    <table class="ci-table">
+                        <thead>
+                            <tr>
+                                <th>Claim #</th>
+                                <th>Status</th>
+                                <th>Description</th>
+                                <th>Amount</th>
+                                <th>Incident Date</th>
+                                <th>Filed Date</th>
+                                <th>Resolved</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var claim in FilteredClaims)
+                            {
+                                <tr>
+                                    <td class="ci-fw-600">@claim.ClaimNumber</td>
+                                    <td><span class="ci-badge @GetClaimStatusClass(claim.Status)"><span class="ci-badge-dot"></span>@FormatClaimStatus(claim.Status)</span></td>
+                                    <td class="ci-text-sm" style="max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">@claim.Description</td>
+                                    <td class="ci-money">@claim.Amount.ToString("C")</td>
+                                    <td class="ci-text-sm ci-text-muted">@claim.IncidentDate.ToString("MMM dd, yyyy")</td>
+                                    <td class="ci-text-sm ci-text-muted">@claim.FiledDate.ToString("MMM dd, yyyy")</td>
+                                    <td class="ci-text-sm ci-text-muted">@(claim.ResolvedDate?.ToString("MMM dd, yyyy") ?? "—")</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private List<Claim> claims = [];
+    private bool isLoading = true;
+    private string? errorMessage;
+    private ClaimStatus? statusFilter;
+
+    private IEnumerable<Claim> FilteredClaims => claims
+        .Where(c => statusFilter is null || c.Status == statusFilter)
+        .OrderByDescending(c => c.FiledDate);
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var client = HttpClientFactory.CreateClient("api");
+            claims = await client.GetFromJsonAsync<List<Claim>>("/api/claims") ?? [];
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Unable to load claims. ({ex.Message})";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private static string GetClaimStatusClass(ClaimStatus status) => status switch
+    {
+        ClaimStatus.Submitted => "submitted",
+        ClaimStatus.UnderReview => "underreview",
+        ClaimStatus.Approved => "approved",
+        ClaimStatus.Denied => "denied",
+        ClaimStatus.Paid => "paid",
+        ClaimStatus.Closed => "closed",
+        _ => ""
+    };
+
+    private static string FormatClaimStatus(ClaimStatus status) => status switch
+    {
+        ClaimStatus.UnderReview => "Under Review",
+        _ => status.ToString()
+    };
+}

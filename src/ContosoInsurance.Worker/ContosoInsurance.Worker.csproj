@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk.Worker">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UserSecretsId>dotnet-ContosoInsurance.Worker-350ef55e-0156-49ad-b4dc-56041c857a61</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Aspire.Microsoft.EntityFrameworkCore.SqlServer" Version="13.2.4" />
+    <PackageReference Include="Aspire.RabbitMQ.Client" Version="13.2.4" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.7" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ContosoInsurance.Data\ContosoInsurance.Data.csproj" />
+    <ProjectReference Include="..\ContosoInsurance.ServiceDefaults\ContosoInsurance.ServiceDefaults.csproj" />
+  </ItemGroup>
+</Project>

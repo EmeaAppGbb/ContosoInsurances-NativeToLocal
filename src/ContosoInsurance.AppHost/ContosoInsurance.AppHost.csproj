@@ -1,0 +1,22 @@
+<Project Sdk="Aspire.AppHost.Sdk/13.2.4">
+
+  <ItemGroup>
+    <ProjectReference Include="..\ContosoInsurance.Web\ContosoInsurance.Web.csproj" />
+    <ProjectReference Include="..\ContosoInsurance.Api\ContosoInsurance.Api.csproj" />
+    <ProjectReference Include="..\ContosoInsurance.Worker\ContosoInsurance.Worker.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Aspire.Hosting.RabbitMQ" Version="13.2.4" />
+    <PackageReference Include="Aspire.Hosting.SqlServer" Version="13.2.4" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <UserSecretsId>fc0ec8fd-564f-4ea7-93b5-733135d30b70</UserSecretsId>
+  </PropertyGroup>
+
+</Project>
