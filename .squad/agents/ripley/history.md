@@ -76,3 +76,13 @@
 - Web frontend connects to API via Aspire service discovery (`https+http://api`)
 - Squad workflow: charter + agents + parallel fanout + orchestration log + decision consolidation = high-velocity full-stack delivery
 
+### README Updated for local-connected Branch (2025-07-24)
+- Rewrote README.md (608 insertions, 98 deletions) to serve as the primary guide for Azure Local connected mode
+- Added prominent branch banner with cross-reference to `main` for cloud version
+- Created detailed ASCII topology diagram showing on-prem (Arc K8s, Arc SQL MI, RabbitMQ, NGINX/MetalLB) vs cloud (ACR, KV, Monitor, Arc control plane)
+- Expanded local-connected migration roadmap: change rationale table, resource comparison, cost implications, operational differences
+- Added 8-step Migration Guide: HCI setup → Arc → K8s → SQL MI → extensions → deploy → ingress → validate
+- Updated solution structure to document `infra/` and `k8s/` directories
+- Key learning: The split between on-prem and cloud is the core concept — compute/data local, management/observability in Azure
+- Application code is identical across branches; only infra/ and k8s/ change
+
