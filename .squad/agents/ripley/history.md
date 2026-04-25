@@ -30,3 +30,10 @@
 - Team fanout initiated: Lambert (Frontend), Dallas (Backend), Parker (Infra), Brett (Testing)
 - **Next:** Document architecture in README with migration roadmap
 
+### README Authored (2025-07-24)
+- Wrote comprehensive README.md at repo root — serves as primary project guide
+- Includes: ASCII architecture diagram, service communication table, security architecture
+- Full migration roadmap: main (Azure) → local-connected → local-disconnected with comparison table
+- Detailed project structure, tech stack, getting started (local + Azure), application features
+- All content derived from actual codebase inspection (AppHost, endpoints, models, worker, service defaults)
+- README is conference/customer-presentation ready
