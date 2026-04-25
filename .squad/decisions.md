@@ -107,6 +107,87 @@ The Web frontend must be internet-accessible while all other services remain pri
 
 ---
 
+### Azure Local Connected Mode Infrastructure Decisions
+
+**Author:** Parker (Infra/DevOps)  
+**Date:** 2026-07-15  
+**Branch:** `local-connected`  
+**Status:** Implemented
+
+#### 1. Resource Group Scope (was Subscription Scope)
+
+**Change:** `targetScope` in main.bicep changed from `subscription` to `resourceGroup`.
+
+**Rationale:** Azure Local resources deploy into an existing resource group that already contains the Arc-connected cluster. The RG is pre-created during Azure Local cluster setup, not by Bicep.
+
+**Impact:** Deployments require an existing RG; the `az deployment group create` command is used instead of `az deployment sub create`.
+
+---
+
+#### 2. Arc-enabled K8s Replaces AKS
+
+**Change:** `aks.bicep` replaced by `arc-kubernetes.bicep`.
+
+**Rationale:** The Kubernetes cluster runs on Azure Local hardware and is managed by the on-prem admin. Bicep configures Azure Arc extensions (monitoring, policy, Key Vault secrets provider, Flux GitOps) rather than creating the cluster itself.
+
+**Impact:** Cluster lifecycle (create, scale, upgrade) is managed outside of Bicep. Arc extensions provide the same management capabilities as AKS addons.
+
+---
+
+#### 3. Arc SQL MI Replaces Azure SQL Database
+
+**Change:** `sql.bicep` (serverless Azure SQL DB) replaced by `arc-sql.bicep` (Arc-enabled SQL MI).
+
+**Rationale:** SQL MI on Azure Local provides full SQL Server compatibility and runs on-prem. Connection string output shape is identical — EF Core works without code changes.
+
+**Impact:** Higher resource requirements (dedicated vCores, memory). Storage uses Azure Local Storage Spaces Direct. `TrustServerCertificate=true` in connection string (self-signed cert on-prem).
+
+---
+
+#### 4. NGINX Ingress + MetalLB Replaces App Gateway
+
+**Change:** `appgateway.bicep` replaced by documentation module. NGINX Ingress Controller and MetalLB deployed as K8s workloads.
+
+**Rationale:** Azure Application Gateway is a PaaS service that doesn't exist on Azure Local. NGINX provides equivalent L7 routing with ModSecurity WAF for OWASP protection.
+
+**Impact:** WAF rules managed as K8s config instead of Azure-managed rules. MetalLB handles external IP allocation. TLS certificates managed by cert-manager instead of Azure-managed certs.
+
+---
+
+#### 5. Private Endpoints Removed
+
+**Change:** All private endpoints (ACR, SQL, Key Vault) and associated DNS zones removed.
+
+**Rationale:** The on-prem cluster is not in an Azure VNet. Private endpoints require VNet integration. In connected mode, Azure PaaS services are accessed over the internet/ExpressRoute.
+
+**Impact:** ACR, Key Vault, and Monitor are publicly accessible (RBAC-controlled). ACR changed from Premium to Standard SKU (private endpoints required Premium).
+
+---
+
+#### 6. Flux GitOps for Deployment
+
+**Change:** Added Flux GitOps configuration as an Arc extension. CI/CD pipeline updated to use `az connectedk8s proxy`.
+
+**Rationale:** GitOps is more robust for on-prem clusters with potentially intermittent connectivity. Flux watches the git repo and retries until manifests are applied.
+
+**Impact:** Two deployment paths available: (1) Flux GitOps (declarative, pull-based) or (2) CI/CD with Arc proxy (imperative, push-based). Both supported.
+
+---
+
+#### 7. ACR Authentication via imagePullSecrets
+
+**Change:** AKS AcrPull managed identity replaced by Kubernetes imagePullSecrets.
+
+**Rationale:** AKS managed identity is an Azure-native construct. Arc-enabled K8s uses standard Kubernetes authentication (docker-registry secrets or ACR tokens).
+
+**Impact:** ACR pull secret must be pre-created on the cluster before deployments. Documented in `k8s/arc-extensions.yaml`.
+
+---
+
+**Team Impact:** Application code (API, Web, Worker, Data) requires ZERO changes. Same containers, same images, same environment variables, same connection string format. Only infrastructure and K8s manifest changes are needed.
+
+---
+
 ### Architecture Decision — Solution Structure & Aspire Orchestration
 
 **Author:** Ripley (Lead / Architect)  
