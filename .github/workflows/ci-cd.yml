@@ -13,6 +13,12 @@
 #    - Alternative: Flux GitOps handles deployment automatically
 #    - ACR pull secret must be pre-configured on the cluster
 #
+# MIGRATION (April 2026):
+#    - Removed NGINX Ingress / MetalLB deployment steps (both RETIRED March 2026)
+#    - Added Gateway API CRD installation step (required for AGC + ALB Controller)
+#    - AGC resource ID is substituted into web-deployment.yaml for Gateway annotation
+#    - Traffic now flows: Internet → AGC (Azure) → Arc tunnel → on-prem pods
+#
 # The key insight: APPLICATION CODE IS UNCHANGED. The same containers that
 # ran on AKS in Azure now run on Arc-enabled K8s on Azure Local.
 # ============================================================================
@@ -197,13 +203,25 @@ jobs:
       - name: Deploy RabbitMQ
         run: kubectl apply -f k8s/rabbitmq-deployment.yaml
 
+      # MIGRATION: Install Gateway API CRDs (required for AGC + ALB Controller)
+      # These CRDs define Gateway and HTTPRoute resources used in web-deployment.yaml.
+      # Replaces the NGINX IngressClass that was previously auto-installed.
+      - name: Install Gateway API CRDs
+        run: |
+          kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.2.1/standard-install.yaml
+
       - name: Deploy application
         env:
           TAG: ${{ needs.build-images.outputs.image_tag }}
           ACR: ${{ steps.details.outputs.acr_login_server }}
         run: |
+          # Get AGC resource ID for Gateway API annotation
+          AGC_ID=$(az network traffic-controller list --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --query '[0].id' -o tsv 2>/dev/null || echo "")
           for manifest in k8s/api-deployment.yaml k8s/worker-deployment.yaml k8s/web-deployment.yaml; do
-            sed -e "s|__ACR_LOGIN_SERVER__|$ACR|g" -e "s|__TAG__|$TAG|g" "$manifest" | kubectl apply -f -
+            sed -e "s|__ACR_LOGIN_SERVER__|$ACR|g" \
+                -e "s|__TAG__|$TAG|g" \
+                -e "s|__AGC_RESOURCE_ID__|$AGC_ID|g" \
+                "$manifest" | kubectl apply -f -
           done
 
       - name: Apply network policies

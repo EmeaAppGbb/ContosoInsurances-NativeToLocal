@@ -1,20 +1,26 @@
 # ============================================================================
-# Azure Developer CLI (azd) configuration — Azure Local Connected Mode
+# Azure Developer CLI (azd) configuration - Azure Local Connected Mode
 # ============================================================================
 #
 # MIGRATION NOTE (from main branch):
 # The cloud deployment used azd's built-in Aspire/Container Apps integration.
 # For Azure Local connected mode:
 #
-# 1. host changed from 'containerapp' to 'aks' — AZD deploys to K8s
-# 2. infra deploys Azure-side resources (ACR, Key Vault, Monitor) + Arc config
-# 3. K8s manifests are applied via GitOps (Flux) or CI/CD pipeline
-# 4. AZD handles the Azure resource provisioning; K8s deployment is separate
+# 1. infra deploys Azure-side resources (ACR, Key Vault, Monitor, AGC) + Arc config
+# 2. K8s manifests are applied via GitOps (Flux) or CI/CD pipeline
+# 3. AZD handles the Azure resource provisioning; K8s deployment is separate
+#
+# MIGRATION (April 2026):
+# - AGC (Application Gateway for Containers) now deployed as Azure resource
+# - ALB Controller Arc extension manages AGC from the on-prem cluster
+# - Removed NGINX Ingress / MetalLB deployment steps (both RETIRED March 2026)
+# - Gateway API CRDs must be installed on the Arc-enabled cluster
 #
 # DEPLOYMENT WORKFLOW:
-#   1. azd provision — deploys Bicep (Azure resources + Arc extensions)
-#   2. azd deploy — builds containers, pushes to ACR
-#   3. Flux GitOps (or CI/CD) applies K8s manifests to Arc-enabled cluster
+#   1. azd provision - deploys Bicep (Azure resources + Arc extensions + AGC)
+#   2. azd deploy - builds containers, pushes to ACR
+#   3. Install Gateway API CRDs on Arc cluster (if not already present)
+#   4. Flux GitOps (or CI/CD) applies K8s manifests to Arc-enabled cluster
 # ============================================================================
 name: contoso-insurance
 metadata:
@@ -25,16 +31,16 @@ infra:
   module: main
 # Hook scripts for Azure Local deployment
 hooks:
-  # After provisioning, configure kubectl context for the Arc-enabled cluster
   postprovision:
     shell: sh
     run: |
       echo "=== Post-Provision: Azure Local Connected Mode ==="
-      echo "Azure resources provisioned. Next steps:"
+      echo "Azure resources provisioned (including AGC). Next steps:"
       echo "1. Ensure Arc-connected cluster is accessible"
-      echo "2. Create ACR pull secret: kubectl create secret docker-registry acr-pull-secret ..."
-      echo "3. Apply K8s manifests or wait for Flux GitOps sync"
+      echo "2. Install Gateway API CRDs:"
+      echo "   kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.2.1/standard-install.yaml"
+      echo "3. Create ACR pull secret: kubectl create secret docker-registry acr-pull-secret ..."
+      echo "4. Apply K8s manifests or wait for Flux GitOps sync"
       echo ""
       echo "To get Arc cluster credentials:"
       echo "  az connectedk8s proxy --name <cluster> --resource-group <rg>"
-

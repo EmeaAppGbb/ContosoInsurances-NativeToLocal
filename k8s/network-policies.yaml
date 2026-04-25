@@ -1,20 +1,16 @@
 # ============================================================================
-# Network Policies — Zero-trust within the cluster (Azure Local Connected)
+# Network Policies - Zero-trust within the cluster (Azure Local Connected)
 # ============================================================================
 #
-# MIGRATION NOTE (from main branch):
-# Network policies work IDENTICALLY on Arc-enabled K8s as they did on AKS.
-# The CNI plugin on the Azure Local K8s cluster must support NetworkPolicy
-# (Calico, Cilium, or Azure Local's built-in CNI).
-#
-# KEY CHANGES:
-# 1. Web frontend egress to Azure services (ACR, Key Vault, Monitor) added —
-#    on Azure Local, pods need outbound internet access to reach Azure PaaS.
-#    In the cloud, these were accessed via private endpoints within the VNet.
-# 2. API/Worker SQL egress updated — SQL MI is now on the local K8s network
-#    (not a private endpoint in a different subnet). The CIDR is updated to
-#    allow traffic to the Arc SQL MI pod.
-# 3. All pods need DNS egress (unchanged).
+# MIGRATION (April 2026):
+# Updated for AGC (Application Gateway for Containers). Key changes:
+#   1. Web frontend ingress: Changed from NGINX Ingress namespace selector
+#      to allowing traffic from the ALB Controller / AGC tunnel. In connected
+#      mode, AGC routes traffic through the Arc tunnel, which appears as
+#      traffic from within the cluster (azure-alb-system namespace).
+#   2. Removed ingress-nginx namespace references (NGINX retired March 2026)
+#   3. API/Worker SQL egress unchanged (still targets arc-data namespace)
+#   4. All pods still need outbound HTTPS to Azure services
 # ============================================================================
 
 # Default deny all ingress/egress in the namespace
@@ -30,7 +26,10 @@ spec:
     - Egress
 
 ---
-# Web Frontend: allow ingress from NGINX Ingress, allow egress to API + Azure
+# Web Frontend: allow ingress from AGC (via ALB Controller), allow egress to API + Azure
+# MIGRATION: Changed from ingress-nginx namespace to azure-alb-system namespace.
+# AGC routes traffic through the Arc tunnel; the ALB Controller pods in
+# azure-alb-system namespace forward traffic to the web frontend.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -44,11 +43,12 @@ spec:
     - Ingress
     - Egress
   ingress:
-    # Allow traffic from NGINX Ingress Controller namespace
+    # Allow traffic from ALB Controller namespace (AGC tunnel endpoint)
+    # MIGRATION: Was ingress-nginx namespace; now azure-alb-system
     - from:
         - namespaceSelector:
             matchLabels:
-              kubernetes.io/metadata.name: ingress-nginx
+              kubernetes.io/metadata.name: azure-alb-system
       ports:
         - port: 8080
           protocol: TCP
@@ -69,8 +69,7 @@ spec:
           protocol: UDP
         - port: 53
           protocol: TCP
-    # CHANGE: Allow outbound HTTPS to Azure services (App Insights telemetry)
-    # In cloud, this went through the VNet. On-prem, it goes over internet.
+    # Allow outbound HTTPS to Azure services (App Insights telemetry)
     - to:
         - ipBlock:
             cidr: 0.0.0.0/0
@@ -113,8 +112,7 @@ spec:
       ports:
         - port: 5672
           protocol: TCP
-    # CHANGE: Arc SQL MI runs as a pod on the K8s network (was private endpoint CIDR)
-    # Allow SQL traffic to the arc-data namespace where SQL MI runs
+    # Arc SQL MI runs as a pod in the arc-data namespace
     - to:
         - namespaceSelector:
             matchLabels:
@@ -166,7 +164,7 @@ spec:
       ports:
         - port: 5672
           protocol: TCP
-    # CHANGE: Arc SQL MI in arc-data namespace (was private endpoint CIDR)
+    # Arc SQL MI in arc-data namespace
     - to:
         - namespaceSelector:
             matchLabels:

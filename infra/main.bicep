@@ -12,7 +12,9 @@
 //    Azure Local hardware; Bicep configures its Azure Arc projection.
 // 3. Azure SQL DB → Arc-enabled SQL Managed Instance — runs on Azure Local
 //    hardware via a Custom Location.
-// 4. App Gateway → NGINX Ingress + MetalLB — Azure Local has no PaaS L7 LB.
+// 4. App Gateway / NGINX+MetalLB → AGC (Application Gateway for Containers)
+//    MIGRATION (April 2026): NGINX Ingress retired March 2026. AGC now works
+//    with Arc-enabled K8s in connected mode — traffic flows through Arc tunnel.
 // 5. Private endpoints REMOVED — in connected mode the on-prem cluster
 //    reaches Azure PaaS (ACR, Key Vault, Monitor) over the internet or
 //    ExpressRoute, not via VNet private link.
@@ -22,11 +24,12 @@
 //   • Azure Container Registry (ACR) — image storage
 //   • Azure Key Vault — secrets management
 //   • Azure Monitor / Log Analytics / Application Insights — telemetry
+//   • AGC (Application Gateway for Containers) — internet-facing ingress
 //
 // Azure services that MOVE to Azure Local:
 //   • Kubernetes (Arc-enabled) — container orchestration
 //   • SQL Managed Instance (Arc-enabled) — relational database
-//   • Ingress (NGINX + MetalLB) — load balancing / WAF
+//   • AGC (Application Gateway for Containers) — ingress (Azure cloud, routes via Arc tunnel)
 // ============================================================================
 
 targetScope = 'resourceGroup'
@@ -128,12 +131,14 @@ module customLocation 'modules/custom-location.bicep' = {
 
 // Arc-enabled Kubernetes — configures the existing on-prem K8s cluster via Azure Arc.
 // CHANGE: Replaces aks.bicep. No cluster is created; we configure Arc extensions
-// (monitoring, policy, Key Vault secrets provider) and GitOps on the existing cluster.
+// (monitoring, policy, Key Vault secrets provider, ALB Controller) and GitOps.
+// MIGRATION (April 2026): Added ALB Controller extension for AGC support.
 module arcKubernetes 'modules/arc-kubernetes.bicep' = {
   name: 'arc-kubernetes'
   params: {
     connectedClusterId: connectedClusterId
     logAnalyticsWorkspaceId: monitoring.outputs.logAnalyticsWorkspaceId
+    agcTrafficControllerId: appgateway.outputs.trafficControllerId
     tags: tags
   }
 }
@@ -194,9 +199,22 @@ module networking 'modules/networking.bicep' = {
   }
 }
 
-// NOTE: appgateway.bicep is REMOVED. Azure Local does not have Application Gateway.
-// Ingress is handled by NGINX Ingress Controller + MetalLB deployed as K8s workloads.
-// See k8s/ingress-nginx.yaml and k8s/metallb-config.yaml for the replacement.
+// Application Gateway for Containers (AGC) — deployed in Azure cloud.
+// MIGRATION (April 2026): Replaced NGINX Ingress + MetalLB with AGC.
+// NGINX Ingress Controller was RETIRED March 2026. AGC works with Arc-enabled K8s
+// in connected mode — the ALB Controller extension on the Arc cluster manages AGC
+// configuration via Gateway API CRDs. Traffic flows:
+//   Internet → AGC (Azure) → Arc connectivity tunnel → on-prem K8s pods
+// This is a KEY ADVANTAGE of connected mode — Azure-managed L7 routing + WAF
+// without exposing on-prem IPs to the internet.
+module appgateway 'modules/appgateway.bicep' = {
+  name: 'appgateway'
+  params: {
+    location: location
+    resourceToken: resourceToken
+    tags: tags
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Outputs (consumed by AZD and CI/CD)
@@ -213,3 +231,6 @@ output AZURE_LOG_ANALYTICS_WORKSPACE_ID string = monitoring.outputs.logAnalytics
 output AZURE_APPLICATION_INSIGHTS_CONNECTION_STRING string = monitoring.outputs.appInsightsConnectionString
 output AZURE_ARC_SQL_FQDN string = arcSql.outputs.serverFqdn
 output AZURE_ARC_SQL_CONNECTION_STRING string = arcSql.outputs.connectionString
+// MIGRATION: Added AGC outputs for connected mode
+output AZURE_AGC_FRONTEND_FQDN string = appgateway.outputs.frontendFqdn
+output AZURE_AGC_RESOURCE_ID string = appgateway.outputs.trafficControllerId

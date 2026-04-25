@@ -1,15 +1,20 @@
 # ============================================================================
-# Web Frontend — the ONLY internet-accessible service (Azure Local Connected)
+# Web Frontend - the ONLY internet-accessible service (Azure Local Connected)
 # ============================================================================
 #
-# MIGRATION NOTE (from main branch):
-# 1. Service changed from internal LoadBalancer (+ App Gateway) to ClusterIP
-#    (+ NGINX Ingress). The Ingress resource at the bottom replaces the App
-#    Gateway routing that was configured in appgateway.bicep.
-# 2. Removed azure-load-balancer-internal annotation (no Azure LB on-prem)
-# 3. Added Ingress resource with nginx class
-# 4. nodeSelector kept but label may need adjustment for Azure Local nodes
-# 5. imagePullSecrets added for ACR authentication (replaces AKS AcrPull role)
+# MIGRATION (April 2026):
+#   - Removed NGINX Ingress resource (NGINX Ingress Controller RETIRED March 2026)
+#   - Added Gateway API resources (Gateway + HTTPRoute) for AGC integration
+#   - Service remains ClusterIP - AGC routes traffic via Arc tunnel
+#   - imagePullSecrets still needed for ACR auth on Arc-enabled K8s
+#
+# HOW IT WORKS IN CONNECTED MODE:
+#   Internet -> AGC (Azure cloud) -> Arc connectivity tunnel -> on-prem pods
+#   The ALB Controller extension on the Arc cluster watches Gateway/HTTPRoute
+#   resources and configures AGC automatically. No MetalLB or NGINX needed!
+#
+# PREREQUISITE: Gateway API CRDs must be installed on the Arc-enabled cluster:
+#   kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.2.1/standard-install.yaml
 # ============================================================================
 apiVersion: apps/v1
 kind: Deployment
@@ -29,7 +34,7 @@ spec:
       labels:
         app: webfrontend
     spec:
-      # CHANGE: Added imagePullSecrets for ACR auth (replaces AKS managed identity)
+      # ACR imagePullSecrets needed on Arc-enabled K8s (no AKS managed identity)
       imagePullSecrets:
         - name: acr-pull-secret
       containers:
@@ -67,9 +72,7 @@ spec:
             initialDelaySeconds: 5
             periodSeconds: 10
 ---
-# CHANGE: Service type changed from LoadBalancer to ClusterIP
-# In the cloud, this was an internal LoadBalancer that App Gateway routed to.
-# On Azure Local, NGINX Ingress Controller handles external routing.
+# ClusterIP service - AGC routes traffic directly to pods via ALB Controller
 apiVersion: v1
 kind: Service
 metadata:
@@ -84,34 +87,53 @@ spec:
       targetPort: 8080
       protocol: TCP
 ---
-# NEW: Ingress resource (replaces Application Gateway routing)
-# This tells the NGINX Ingress Controller to route external traffic to the
-# web frontend service. In the cloud deployment, this routing was handled
-# by the Application Gateway's backend pool + routing rules in Bicep.
-apiVersion: networking.k8s.io/v1
-kind: Ingress
+# ============================================================================
+# Gateway API Resources - replace retired NGINX Ingress (March 2026)
+# ============================================================================
+# MIGRATION: These Gateway API resources replace the NGINX Ingress resource
+# that was previously defined here. The ALB Controller extension on the
+# Arc-enabled cluster watches these resources and configures AGC.
+#
+# KEY ADVANTAGE OF CONNECTED MODE:
+# AGC provides Azure-managed L7 routing, WAF, and DDoS protection for on-prem
+# workloads WITHOUT exposing any on-prem IPs to the internet. Traffic flows
+# through the secure Arc connectivity tunnel (outbound-only from on-prem).
+# ============================================================================
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
 metadata:
-  name: webfrontend-ingress
+  name: contoso-gateway
   namespace: contoso-insurance
   annotations:
-    # Use NGINX ingress class (replaces App Gateway ingress class)
-    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
-    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
-    nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
-    # Enable ModSecurity WAF (equivalent to App Gateway WAF OWASP rules)
-    nginx.ingress.kubernetes.io/enable-modsecurity: "true"
-    nginx.ingress.kubernetes.io/modsecurity-snippet: |
-      SecRuleEngine On
-      Include /etc/nginx/owasp-modsecurity-crs/nginx-modsecurity.conf
+    # Links the Gateway to the AGC Traffic Controller deployed by Bicep.
+    # Replace __AGC_RESOURCE_ID__ with actual AGC resource ID from Bicep output.
+    # CI/CD pipeline handles this substitution.
+    alb.networking.azure.io/alb-id: __AGC_RESOURCE_ID__
 spec:
-  ingressClassName: nginx
+  # MIGRATION: gatewayClassName 'azure-alb-external' is the AGC class for
+  # public-facing frontends. Works with both AKS and Arc-enabled K8s.
+  gatewayClassName: azure-alb-external
+  listeners:
+    - name: http
+      port: 80
+      protocol: HTTP
+      allowedRoutes:
+        namespaces:
+          from: Same
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: webfrontend-route
+  namespace: contoso-insurance
+spec:
+  parentRefs:
+    - name: contoso-gateway
   rules:
-    - http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: webfrontend-service
-                port:
-                  number: 8080
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: webfrontend-service
+          port: 8080

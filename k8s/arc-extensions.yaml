@@ -1,27 +1,63 @@
 # ============================================================================
-# Arc Extensions Documentation — Required Arc K8s Extensions
+# Arc Extensions Documentation - Required Arc K8s Extensions
 # ============================================================================
 #
-# NEW FILE (not present in cloud deployment on main branch)
-#
 # This file documents and provides example configurations for the Azure Arc
-# extensions that are deployed via Bicep (see infra/modules/arc-kubernetes.bicep)
-# and their Kubernetes-side configurations.
+# extensions deployed via Bicep (see infra/modules/arc-kubernetes.bicep) and
+# their Kubernetes-side configurations.
 #
+# MIGRATION (April 2026):
 # In the cloud AKS deployment, these capabilities were built into AKS addons:
-#   - omsagent addon → Azure Monitor Container Insights extension
-#   - azurepolicy addon → Azure Policy extension
-#   - CSI Secrets Store → Key Vault Secrets Provider extension
-#   - kubectl apply (CI/CD) → Flux GitOps extension
+#   - omsagent addon -> Azure Monitor Container Insights extension
+#   - azurepolicy addon -> Azure Policy extension
+#   - CSI Secrets Store -> Key Vault Secrets Provider extension
+#   - kubectl apply (CI/CD) -> Flux GitOps extension
+#   - ALB Controller addon -> ALB Controller Arc extension (NEW)
+#
+# WHAT CHANGED:
+#   - Added ALB Controller extension documentation (replaces NGINX Ingress)
+#   - Removed references to NGINX Ingress Controller (RETIRED March 2026)
+#   - Removed references to MetalLB (no longer needed with AGC)
+#   - Gateway API CRDs must be installed for AGC integration
 # ============================================================================
 
 # ---------------------------------------------------------------------------
-# SecretProviderClass — Key Vault Secrets Provider
+# Gateway API CRDs - REQUIRED for AGC + ALB Controller
+# ---------------------------------------------------------------------------
+# The ALB Controller extension watches Gateway API resources (Gateway,
+# HTTPRoute) to configure AGC. These CRDs must be installed before the
+# ALB Controller can function.
+#
+# INSTALL:
+#   kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.2.1/standard-install.yaml
+#
+# MIGRATION: This replaces the NGINX IngressClass that was previously
+# installed via k8s/ingress-nginx.yaml (now deleted).
+# ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# ALB Controller Arc Extension
+# ---------------------------------------------------------------------------
+# Deployed via Bicep (arc-kubernetes.bicep) as:
+#   Microsoft.KubernetesConfiguration/extensions
+#   extensionType: Microsoft.NetworkFunction.ALBController
+#
+# The ALB Controller:
+#   1. Runs as pods in the azure-alb-system namespace
+#   2. Watches Gateway and HTTPRoute K8s resources
+#   3. Configures the AGC Traffic Controller in Azure cloud
+#   4. Enables traffic flow: Internet -> AGC -> Arc tunnel -> on-prem pods
+#
+# KEY ADVANTAGE: Provides Azure-managed L7 routing and WAF protection for
+# on-prem workloads without exposing any on-prem IPs to the internet.
+# This is a major improvement over the previous NGINX + MetalLB approach.
+# ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# SecretProviderClass - Key Vault Secrets Provider
 # ---------------------------------------------------------------------------
 # This tells the Arc Key Vault Secrets Provider extension which secrets to
-# sync from Azure Key Vault to Kubernetes Secrets. In the cloud deployment,
-# we used static K8s secrets injected by CI/CD. With Arc, secrets are
-# automatically synced from Key Vault.
+# sync from Azure Key Vault to Kubernetes Secrets.
 #
 # USAGE: Uncomment and configure when the Key Vault Secrets Provider
 # extension is installed on the Arc-enabled cluster.
@@ -37,11 +73,8 @@
 #   parameters:
 #     usePodIdentity: "false"
 #     useVMManagedIdentity: "false"
-#     # clientID of the service principal or managed identity with KV access
 #     clientID: "__ARC_KV_EXTENSION_CLIENT_ID__"
-#     # Key Vault name (from Bicep output AZURE_KEY_VAULT_NAME)
 #     keyvaultName: "__KEY_VAULT_NAME__"
-#     # Secrets to sync
 #     objects: |
 #       array:
 #         - |
@@ -51,7 +84,6 @@
 #           objectName: rabbitmq-password
 #           objectType: secret
 #     tenantId: "__AZURE_TENANT_ID__"
-#   # Sync KV secrets to K8s secrets (so env vars can reference them)
 #   secretObjects:
 #     - secretName: contoso-secrets
 #       type: Opaque
@@ -63,11 +95,9 @@
 
 ---
 # ---------------------------------------------------------------------------
-# ACR Pull Secret — Image Pull Authentication
+# ACR Pull Secret - Image Pull Authentication
 # ---------------------------------------------------------------------------
-# In the cloud AKS deployment, the AKS kubelet identity had AcrPull role,
-# so no explicit pull secret was needed. On Arc-enabled K8s, we need an
-# imagePullSecret to authenticate with Azure Container Registry.
+# On Arc-enabled K8s, we need an imagePullSecret to authenticate with ACR.
 #
 # CREATE THIS SECRET VIA CLI (do NOT commit actual credentials):
 #   kubectl create secret docker-registry acr-pull-secret \
@@ -76,10 +106,6 @@
 #     --docker-username=<SERVICE_PRINCIPAL_ID> \
 #     --docker-password=<SERVICE_PRINCIPAL_SECRET> \
 #     --docker-email=admin@contoso.com
-#
-# Or use ACR token-based auth:
-#   az acr token create --name arc-pull-token --registry <ACR_NAME> \
-#     --scope-map _repositories_pull
 # ---------------------------------------------------------------------------
 
 apiVersion: v1
@@ -88,9 +114,8 @@ metadata:
   name: acr-pull-secret
   namespace: contoso-insurance
   annotations:
-    description: "ACR pull secret — create via kubectl, do not commit credentials"
+    description: "ACR pull secret - create via kubectl, do not commit credentials"
 type: kubernetes.io/dockerconfigjson
 data:
-  # PLACEHOLDER — replace with actual base64-encoded dockerconfigjson
-  # Generated by: kubectl create secret docker-registry (see instructions above)
+  # PLACEHOLDER - replace with actual base64-encoded dockerconfigjson
   .dockerconfigjson: e30=

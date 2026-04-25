@@ -53,62 +53,75 @@ In connected mode, the Contoso Insurance application runs **entirely on Azure Lo
  │   │   • GitOps (Flux) configuration management   • RBAC via Entra ID            │  │
  │   └──────────────────────────────────────────────────────────────────────────────┘  │
  │                                                                                     │
- └─────────────────────────────────────────┬───────────────────────────────────────────┘
-                                           │
-                                    Azure Arc Agent
-                                    (outbound HTTPS 443)
-                                           │
- ┌─────────────────────────────────────────┴───────────────────────────────────────────┐
- │                         ON-PREMISES — AZURE LOCAL CLUSTER                           │
- │                                                                                     │
  │   ┌──────────────────────────────────────────────────────────────────────────────┐  │
- │   │                  Arc-enabled Kubernetes (AKS on Azure Local)                 │  │
- │   │                  Custom Location: contoso-local-cl                           │  │
+ │   │            🚀 Application Gateway for Containers (AGC)                      │  │
+ │   │            Microsoft.ServiceNetworking/trafficControllers                   │  │
  │   │                                                                              │  │
- │   │                          ┌─────────────────────┐                            │  │
- │   │                          │  NGINX Ingress       │                            │  │
- │   │           Internet ─────►│  Controller          │                            │  │
- │   │           (HTTPS)        │  + MetalLB (L2/BGP)  │                            │  │
- │   │                          └──────────┬──────────┘                            │  │
- │   │                                     │                                        │  │
- │   │             ┌───────────────────────┼────────────────────────┐               │  │
- │   │             │        contoso-insurance namespace             │               │  │
- │   │             │                       │                        │               │  │
- │   │             │  ┌────────────────────▼──────────────────┐    │               │  │
- │   │             │  │  🌐 Web Frontend (Blazor Server)      │    │               │  │
- │   │             │  │  ClusterIP — port 8080                │    │               │  │
- │   │             │  └────────────────────┬──────────────────┘    │               │  │
- │   │             │                       │ HTTP                   │               │  │
- │   │             │  ┌────────────────────▼──────────────────┐    │               │  │
- │   │             │  │  🔌 API Service (Minimal APIs)        │    │               │  │
- │   │             │  │  ClusterIP — port 8080                │    │               │  │
- │   │             │  └───────┬───────────────────┬───────────┘    │               │  │
- │   │             │          │ AMQP              │ TDS             │               │  │
- │   │             │  ┌───────▼──────────┐  ┌─────▼──────────────┐ │               │  │
- │   │             │  │ 🐇 RabbitMQ      │  │                    │ │               │  │
- │   │             │  │ ClusterIP        │  │                    │ │               │  │
- │   │             │  │ 5672 / 15672     │  │                    │ │               │  │
- │   │             │  └───────┬──────────┘  │                    │ │               │  │
- │   │             │          │ AMQP        │                    │ │               │  │
- │   │             │  ┌───────▼──────────┐  │                    │ │               │  │
- │   │             │  │ ⚙️ Worker         │  │                    │ │               │  │
- │   │             │  │ (Claim Processor)├──►                    │ │               │  │
- │   │             │  │ ClusterIP        │  │                    │ │               │  │
- │   │             │  └──────────────────┘  │                    │ │               │  │
- │   │             │                        │                    │ │               │  │
- │   │             └────────────────────────┼────────────────────┘ │               │  │
- │   │                                      │                      │               │  │
- │   └──────────────────────────────────────┼──────────────────────┘               │  │
- │                                          │                                       │  │
- │   ┌──────────────────────────────────────▼──────────────────────────────────────┐  │
- │   │  🗄️  Arc-enabled SQL Managed Instance                                       │  │
- │   │  Data Controller: contoso-dc  |  Custom Location: contoso-local-cl          │  │
- │   │  Private — accessible only from the K8s cluster network                     │  │
- │   └─────────────────────────────────────────────────────────────────────────────┘  │
- │                                                                                     │
- │   Azure Local Cluster: 2–4 node HCI cluster  │  Logical Network: 10.0.0.0/16      │
- └─────────────────────────────────────────────────────────────────────────────────────┘
+ │   │   Internet ──► AGC Frontend (public IP, TLS termination, WAF)               │  │
+ │   │                    │                                                         │  │
+ │   │                    │  Gateway API: Gateway + HTTPRoute resources             │  │
+ │   │                    │  Routes traffic to on-prem pods via Arc tunnel          │  │
+ │   └────────────────────┼─────────────────────────────────────────────────────────┘  │
+ │                        │                                                             │
+ └────────────────────────┼─────────────────────────────────────────────────────────────┘
+                          │
+                   Arc Tunnel / Secure Channel
+                   (outbound HTTPS 443 only)
+                          │
+ ┌────────────────────────┴─────────────────────────────────────────────────────────────┐
+ │                         ON-PREMISES — AZURE LOCAL CLUSTER                            │
+ │                                                                                      │
+ │   ┌───────────────────────────────────────────────────────────────────────────────┐  │
+ │   │          Arc-enabled Kubernetes 1.35 (AKS on Azure Local)                    │  │
+ │   │          Custom Location: contoso-local-cl                                   │  │
+ │   │                                                                               │  │
+ │   │          ┌─────────────────────────────────────────┐                         │  │
+ │   │          │  ALB Controller (Arc Extension)         │                         │  │
+ │   │          │  Manages Gateway + HTTPRoute resources  │                         │  │
+ │   │          │  Syncs with AGC in Azure cloud          │                         │  │
+ │   │          └────────────────┬────────────────────────┘                         │  │
+ │   │                           │ Routes to backend pods                            │  │
+ │   │                           │                                                   │  │
+ │   │          ┌────────────────┼──────────────────────────────┐                   │  │
+ │   │          │   contoso-insurance namespace                 │                   │  │
+ │   │          │                │                               │                   │  │
+ │   │          │  ┌─────────────▼────────────────────────┐    │                   │  │
+ │   │          │  │  🌐 Web Frontend (Blazor Server)      │    │                   │  │
+ │   │          │  │  ClusterIP — port 8080                │    │                   │  │
+ │   │          │  └─────────────┬────────────────────────┘    │                   │  │
+ │   │          │                │ HTTP                         │                   │  │
+ │   │          │  ┌─────────────▼────────────────────────┐    │                   │  │
+ │   │          │  │  🔌 API Service (Minimal APIs)        │    │                   │  │
+ │   │          │  │  ClusterIP — port 8080                │    │                   │  │
+ │   │          │  └───────┬─────────────────┬─────────────┘    │                   │  │
+ │   │          │          │ AMQP            │ TDS               │                   │  │
+ │   │          │  ┌───────▼──────────┐  ┌───▼────────────────┐ │                   │  │
+ │   │          │  │ 🐇 RabbitMQ      │  │                    │ │                   │  │
+ │   │          │  │ ClusterIP        │  │                    │ │                   │  │
+ │   │          │  │ 5672 / 15672     │  │                    │ │                   │  │
+ │   │          │  └───────┬──────────┘  │                    │ │                   │  │
+ │   │          │          │ AMQP        │                    │ │                   │  │
+ │   │          │  ┌───────▼──────────┐  │                    │ │                   │  │
+ │   │          │  │ ⚙️ Worker         │  │                    │ │                   │  │
+ │   │          │  │ (Claim Processor)├──►                    │ │                   │  │
+ │   │          │  │ ClusterIP        │  │                    │ │                   │  │
+ │   │          │  └──────────────────┘  │                    │ │                   │  │
+ │   │          │                        │                    │ │                   │  │
+ │   │          └────────────────────────┼────────────────────┘ │                   │  │
+ │   │                                   │                      │                   │  │
+ │   └───────────────────────────────────┼──────────────────────┘                   │  │
+ │                                       │                                           │  │
+ │   ┌───────────────────────────────────▼───────────────────────────────────────┐   │  │
+ │   │  🗄️  Arc-enabled SQL Managed Instance                                     │   │  │
+ │   │  Data Controller: contoso-dc  |  Custom Location: contoso-local-cl        │   │  │
+ │   │  Private — accessible only from the K8s cluster network                   │   │  │
+ │   └───────────────────────────────────────────────────────────────────────────┘   │  │
+ │                                                                                   │  │
+ │   Azure Local Cluster: 2–4 node HCI cluster  │  Logical Network: 10.0.0.0/16     │  │
+ └───────────────────────────────────────────────────────────────────────────────────────┘
 ```
+
+> **🔑 Traffic flow:** Internet → AGC (Azure cloud, managed data plane) → Arc tunnel (outbound 443) → ALB Controller → K8s ClusterIP pods on-prem. No inbound firewall rules required on the on-prem network.
 
 ### What's On-Premises vs. What's in Azure Cloud
 
@@ -119,7 +132,7 @@ Understanding the **split** is key to connected mode. The application workloads 
 | **Compute** | 🏢 On-Prem | Arc-enabled Kubernetes | Low-latency, data sovereignty, local access |
 | **Database** | 🏢 On-Prem | Arc-enabled SQL MI | Data residency, performance, compliance |
 | **Messaging** | 🏢 On-Prem | RabbitMQ (container) | Co-located with producers/consumers |
-| **Ingress** | 🏢 On-Prem | NGINX + MetalLB | Local network entry point, no cloud dependency for traffic |
+| **Ingress** | ☁️ Azure | Application Gateway for Containers (AGC) | Managed data plane in Azure; ALB Controller as Arc extension on-prem |
 | **Container Images** | ☁️ Azure | Azure Container Registry | Central image store; K8s pulls images via Arc or direct |
 | **Secrets** | ☁️ Azure | Azure Key Vault | Centralized secret management via Arc CSI driver |
 | **Monitoring** | ☁️ Azure | Azure Monitor / App Insights | Unified observability across all sites |
@@ -142,13 +155,16 @@ All inter-service communication uses **.NET Aspire service discovery** — ident
 
 ### Security Architecture — Connected Mode
 
-- **NGINX Ingress Controller** is the sole entry point, replacing Application Gateway. TLS termination happens at the ingress.
-- **MetalLB** provides load balancer IPs on the local network (Layer 2 or BGP mode).
+- **Application Gateway for Containers (AGC)** is the sole public entry point — the same as cloud AKS. AGC data plane runs in Azure; the ALB Controller runs as an Arc extension on-prem.
+- **Gateway API** resources (`Gateway` + `HTTPRoute`) define routing rules — identical to the `main` branch.
+- **AGC provides built-in WAF**, TLS termination, and automatic scaling — no on-prem load balancer needed.
 - **All backend services use ClusterIP** — no services are directly internet-accessible.
 - **Arc-enabled SQL MI** is accessible only from within the Kubernetes cluster network.
 - **Network Policies** (Calico) enforce zero-trust pod-to-pod communication within the namespace.
 - **Azure Key Vault** secrets are injected via the **Arc Key Vault CSI driver** — secrets never stored in K8s manifests.
 - **Microsoft Entra ID** remains the identity provider via Azure Arc RBAC integration.
+
+> **What changed from `main`?** Nothing for ingress! AGC works identically for cloud AKS and Arc-enabled K8s. The on-prem cluster runs the ALB Controller as an Arc extension, which syncs with the AGC resource in Azure. This is the key benefit of AGC in connected mode.
 
 ---
 
@@ -203,8 +219,8 @@ ContosoInsurance.slnx                     # .NET 10 XML solution file
 | **Database** | Arc-enabled SQL MI on Azure Local | Relational data storage (on-prem) |
 | **Messaging** | RabbitMQ | Asynchronous event-driven processing |
 | **Observability** | OpenTelemetry → Azure Monitor | Distributed tracing, metrics, and logging |
-| **Container Orchestration** | Arc-enabled K8s on Azure Local | Production workload hosting (on-prem) |
-| **Ingress** | NGINX Ingress Controller + MetalLB | HTTP routing and load balancing |
+| **Container Orchestration** | Arc-enabled K8s 1.35 on Azure Local | Production workload hosting (on-prem) |
+| **Ingress** | Application Gateway for Containers (AGC) | Gateway API-based ingress with built-in WAF (via Arc extension) |
 | **Infrastructure** | Bicep (Arc resources) | Infrastructure as Code |
 | **Management** | Azure Arc | Unified cloud management for on-prem resources |
 | **CI/CD** | GitHub Actions | Build, test, and deployment pipelines |
@@ -231,9 +247,8 @@ ContosoInsurance.slnx                     # .NET 10 XML solution file
 | **Azure Arc** | Arc Resource Bridge deployed on the Azure Local cluster |
 | **Arc-enabled Kubernetes** | AKS on Azure Local provisioned via Arc (with a Custom Location) |
 | **Azure CLI** | Latest, with `connectedk8s`, `k8s-extension`, and `customlocation` extensions |
-| **kubectl** | Configured with credentials to the Arc-enabled K8s cluster |
-| **Helm** | Latest — used to install NGINX Ingress and MetalLB |
-| **Azure Subscription** | For Arc control plane, ACR, Key Vault, and Monitor resources |
+| **kubectl** | 1.35+, configured with credentials to the Arc-enabled K8s cluster |
+| **Azure Subscription** | For Arc control plane, AGC, ACR, Key Vault, and Monitor resources |
 
 ### Run Locally with Aspire
 
@@ -358,7 +373,7 @@ The starting point: a fully cloud-native deployment on Azure. See the [`main` br
 - **Registry**: Azure Container Registry (private, VNet-integrated)
 - **Monitoring**: Azure Monitor, Log Analytics, Application Insights
 - **Identity**: Microsoft Entra ID (Azure AD)
-- **Networking**: Application Gateway as the sole public entry point; all other services are private
+- **Networking**: Application Gateway for Containers (AGC) as the sole public entry point using Gateway API; all other services are private
 - **Infrastructure as Code**: Bicep templates deployed via Azure Developer CLI (`azd`)
 
 ### Branch: `local-connected` — Azure Local (Connected) 🔗 ← You Are Here
@@ -369,21 +384,22 @@ The deployment target shifts to Azure Local hardware while **maintaining connect
 
 | Change | Reason |
 |---|---|
-| AKS → Arc-enabled K8s on Azure Local | Compute moves on-prem for data sovereignty, latency, and compliance |
+| AKS → Arc-enabled K8s 1.35 on Azure Local | Compute moves on-prem for data sovereignty, latency, and compliance |
 | Azure SQL MI (PaaS) → Arc-enabled SQL MI | Database stays close to compute; data never leaves the premises |
-| Application Gateway → NGINX Ingress + MetalLB | No Azure-managed load balancer on-prem; NGINX provides equivalent L7 routing |
+| AGC add-on → AGC Arc extension | **Same AGC!** ALB Controller runs as Arc extension instead of AKS add-on |
 | VNet + NSGs → Kubernetes Network Policies (Calico) | On-prem networking uses the cluster's CNI, not Azure virtual networking |
 | `azd up` → Bicep + `kubectl apply` | No `azd` integration for Azure Local yet; deploy in two phases |
 | Azure-native monitoring → Arc monitoring extension | Same Azure Monitor backend, but telemetry flows through the Arc agent |
+
+> **🎯 Notice what DIDN'T change:** The ingress layer (AGC + Gateway API) is now **identical** between cloud and on-prem. This is a huge simplification over the previous NGINX + MetalLB pattern.
 
 #### Detailed Resource Comparison
 
 | Azure Cloud Resource (`main`) | Azure Local Equivalent (`local-connected`) | Notes |
 |---|---|---|
-| Azure Kubernetes Service (AKS) | AKS on Azure Local (Arc-enabled) | Managed via Azure Arc; visible in Azure Portal |
+| Azure Kubernetes Service (AKS) | AKS on Azure Local (Arc-enabled, K8s 1.35) | Managed via Azure Arc; visible in Azure Portal |
 | Azure SQL Managed Instance | Arc-enabled SQL MI + Data Controller | Runs on Azure Local; managed via Arc Data Controller |
-| Application Gateway WAF v2 | NGINX Ingress Controller | Open-source; TLS termination, path-based routing |
-| Azure Load Balancer | MetalLB (Layer 2 or BGP) | Assigns external IPs from the on-prem network range |
+| AGC (AKS ALB Controller add-on) | **AGC (ALB Controller Arc extension)** | **Same AGC resource!** ALB Controller deployed as Arc extension |
 | Azure VNet + Subnets | Azure Local Logical Network | SDN-managed networking on the HCI cluster |
 | Azure Private Endpoints | Kubernetes ClusterIP services | All services are cluster-internal by default |
 | Azure Container Registry | Azure Container Registry (unchanged) | Images still pulled from ACR; cluster has outbound access |
@@ -396,12 +412,13 @@ The deployment target shifts to Azure Local hardware while **maintaining connect
 
 Some services **remain in Azure** because they provide centralized management value that doesn't benefit from being on-premises:
 
+- **Application Gateway for Containers (AGC)** — Managed ingress. The AGC data plane runs in Azure cloud; only the ALB Controller runs on-prem as an Arc extension. This means no on-prem load balancer to manage — a major operational win over the old NGINX + MetalLB pattern.
 - **Azure Container Registry** — Central image repository. The Arc-enabled cluster pulls images from ACR over the network. Running a local registry adds operational burden without significant benefit in connected mode.
 - **Azure Key Vault** — Centralized secret management. The Arc Key Vault CSI driver mounts secrets directly into pods. Secrets are never stored in Kubernetes manifests.
 - **Azure Monitor / Application Insights** — Unified observability. Telemetry from all sites (cloud, connected, future disconnected) aggregates into a single pane of glass. The Arc monitoring extension handles forwarding.
 - **Microsoft Entra ID** — Single identity plane. Users authenticate against Entra ID regardless of where the workload runs.
 
-#### Network Topology Changes
+#### Network Topology — Now Unified!
 
 ```
 CLOUD (main)                          ON-PREM (local-connected)
@@ -409,21 +426,23 @@ CLOUD (main)                          ON-PREM (local-connected)
 Internet                              Internet
     │                                     │
     ▼                                     ▼
-App Gateway (WAF v2)                  NGINX Ingress + MetalLB
-    │  (Azure-managed)                    │  (self-managed on K8s)
-    ▼                                     ▼
-Internal LB → Web Pod                Web Pod (ClusterIP)
-    │                                     │
-Private VNet                          K8s Cluster Network
-    │                                     │
-API Pod → SQL MI (Private EP)         API Pod → SQL MI (ClusterIP/NodePort)
+AGC (Azure cloud)                     AGC (Azure cloud) ← SAME!
+    │  Gateway + HTTPRoute                │  Gateway + HTTPRoute
+    │  (AKS ALB Controller add-on)        │  (ALB Controller Arc extension)
+    ▼                                     │
+AKS cluster (Private VNet)                ▼ (via Arc tunnel)
+    │                                 Arc K8s cluster (Azure Local)
+Web Pod → API Pod → SQL MI               │
+                                      Web Pod → API Pod → SQL MI
 ```
 
-**Key differences:**
-- No Azure-managed load balancer — MetalLB assigns IPs from your on-prem DHCP/static range
-- No private endpoints — Kubernetes ClusterIP provides equivalent network isolation
-- No VNet peering or NSGs — Calico Network Policies enforce microsegmentation
-- Outbound internet required only for: Arc agent heartbeat, image pulls, telemetry, and Entra auth
+**🎯 Key insight:** With AGC, the ingress pattern is **identical** for cloud and on-prem. Both use the same `Gateway` and `HTTPRoute` resources. The only difference is how the ALB Controller is deployed (AKS add-on vs Arc extension) and how traffic reaches the cluster (VNet link vs Arc tunnel).
+
+**Key network characteristics:**
+- No on-prem load balancer needed — AGC handles everything from Azure cloud
+- No NGINX, no MetalLB — eliminated entirely
+- Outbound internet required for: AGC tunnel, Arc agent heartbeat, image pulls, telemetry, and Entra auth
+- All inbound traffic flows through AGC → Arc tunnel → ClusterIP services
 
 #### Cost Implications
 
@@ -431,15 +450,14 @@ API Pod → SQL MI (Private EP)         API Pod → SQL MI (ClusterIP/NodePort)
 |---|---|---|
 | **Compute** | AKS node pool VMs (~$300–$800/mo) | Azure Local hardware (CAPEX, already owned) |
 | **Database** | SQL MI (~$350+/mo) | Arc SQL MI license (included with Azure Local) |
-| **Ingress** | App Gateway WAF (~$250/mo) | NGINX (free, open-source) |
-| **Load Balancer** | Azure LB (~$20/mo) | MetalLB (free, open-source) |
+| **Ingress** | AGC (~$150/mo) | AGC (~$150/mo, same — managed in Azure) |
 | **Monitoring** | Pay per GB ingested | Pay per GB ingested (same) |
 | **Arc Management** | N/A | Free (Arc control plane is no-cost) |
 | **ACR** | ~$5–50/mo | ~$5–50/mo (same, still in Azure) |
 | **Key Vault** | ~$3/mo | ~$3/mo (same, still in Azure) |
-| **Total estimate** | ~$930+/mo (OPEX) | ~$60/mo cloud + hardware CAPEX |
+| **Total estimate** | ~$860+/mo (OPEX) | ~$210/mo cloud + hardware CAPEX |
 
-> **Summary:** Connected mode trades cloud OPEX for on-prem CAPEX. If you already own Azure Local hardware, the ongoing Azure costs drop dramatically — you only pay for cloud services that remain (ACR, KV, Monitor, Arc SQL MI license).
+> **Summary:** Connected mode trades cloud OPEX for on-prem CAPEX. AGC cost is the same in both modes (it's an Azure cloud resource either way). If you already own Azure Local hardware, the ongoing Azure costs drop significantly — you only pay for cloud services that remain (AGC, ACR, KV, Monitor, Arc SQL MI license).
 
 #### Operational Differences
 
@@ -452,7 +470,7 @@ API Pod → SQL MI (Private EP)         API Pod → SQL MI (ClusterIP/NodePort)
 | **Secret rotation** | Key Vault auto-rotation | Key Vault + Arc CSI driver sync |
 | **Scaling** | AKS node autoscaler | Manual or VM-based (Azure Local capacity) |
 | **Disaster recovery** | Azure-managed redundancy | Azure Local stretch cluster or backup/restore |
-| **Certificate management** | App Gateway + Key Vault | cert-manager + Key Vault CSI driver |
+| **Certificate management** | AGC + Key Vault | AGC + Key Vault (same!) |
 
 ---
 
@@ -476,11 +494,11 @@ A **fully air-gapped deployment** with zero internet dependency. See the `local-
 
 | Aspect | ☁️ `main` (Azure) | 🔗 `local-connected` | 🔒 `local-disconnected` |
 |---|---|---|---|
-| **Compute** | AKS (managed) | Arc-enabled K8s on Azure Local | Standalone K8s |
+| **Compute** | AKS (K8s 1.35, managed) | Arc-enabled K8s 1.35 on Azure Local | Standalone K8s 1.35 |
 | **Database** | Azure SQL MI (PaaS) | SQL MI on Azure Local (Arc) | Local SQL Server |
 | **Messaging** | RabbitMQ in AKS | RabbitMQ on Azure Local | RabbitMQ (local) |
 | **Container Registry** | Azure Container Registry | ACR (unchanged — cloud) | Local registry only |
-| **Ingress** | Application Gateway WAF | NGINX Ingress + MetalLB | NGINX (local only) |
+| **Ingress** | AGC (Gateway API) | **AGC (Gateway API) — SAME!** | NGINX / HAProxy (local) |
 | **Monitoring** | App Insights + Log Analytics | App Insights via Arc | Prometheus + Grafana |
 | **Identity** | Microsoft Entra ID | Microsoft Entra ID via Arc | Local AD / accounts |
 | **Secrets** | Azure Key Vault | Azure Key Vault via Arc CSI | Local secret store |
@@ -549,7 +567,7 @@ az customlocation list --resource-group rg-contoso-local -o table
 **Why:** This replaces the cloud AKS cluster from the `main` branch. The Kubernetes API and workloads run on-premises, but the cluster is visible and manageable from the Azure Portal.
 
 **Key concepts:**
-- **AKS on Azure Local** is a full Kubernetes distribution that runs on HCI nodes
+- **AKS on Azure Local** is a full Kubernetes 1.35 distribution that runs on HCI nodes
 - The cluster is **Arc-connected** — it appears as a `Microsoft.Kubernetes/connectedClusters` resource in Azure
 - You can manage it with `kubectl` (direct) or through the Azure Portal (via Arc)
 - **Logical Networks** in Azure Local provide IP address management for pods and services
@@ -622,6 +640,7 @@ kubectl exec -it contoso-sql-0 -n contoso-dc -- \
 
 **Key concepts:**
 - **Arc K8s Extensions** are Helm charts deployed and managed by Azure Arc. You install them via the Azure CLI, and Arc handles upgrades.
+- **ALB Controller extension** enables Application Gateway for Containers (AGC) on the Arc-connected cluster — this is the ingress controller
 - **Container Insights extension** forwards logs and metrics to Azure Monitor
 - **Key Vault CSI driver** mounts Key Vault secrets directly into pod volumes
 - **Azure Policy extension** enforces compliance policies on the cluster
@@ -629,6 +648,14 @@ kubectl exec -it contoso-sql-0 -n contoso-dc -- \
 **Actions:**
 
 ```bash
+# Install ALB Controller extension (AGC ingress — replaces NGINX + MetalLB)
+az k8s-extension create \
+  --cluster-name contoso-arc-k8s \
+  --resource-group rg-contoso-local \
+  --cluster-type connectedClusters \
+  --extension-type Microsoft.ServiceNetworking.Alb \
+  --name alb-controller
+
 # Install monitoring extension (Container Insights → Azure Monitor)
 az k8s-extension create \
   --cluster-name contoso-arc-k8s \
@@ -655,6 +682,8 @@ az k8s-extension create \
   --extension-type Microsoft.PolicyInsights \
   --name azurepolicy
 ```
+
+> **💡 Note:** The ALB Controller extension automatically installs Gateway API CRDs on the cluster. No manual CRD installation needed.
 
 ---
 
@@ -704,50 +733,87 @@ az k8s-configuration flux create \
 
 ---
 
-### Step 7: Configure Ingress (NGINX + MetalLB)
+### Step 7: Configure AGC with ALB Controller Arc Extension
 
-**What:** Install NGINX Ingress Controller and MetalLB to provide external access to the application.
+**What:** Install the ALB Controller as an Arc extension on the on-prem cluster and configure Application Gateway for Containers (AGC) for ingress.
 
-**Why:** Azure Local doesn't have a cloud load balancer. MetalLB assigns real IPs from your on-premises network, and NGINX handles HTTP routing and TLS termination — replacing Application Gateway from the cloud deployment.
+**Why:** AGC provides the **same managed ingress** for on-prem Arc K8s that it provides for cloud AKS. The ALB Controller Arc extension manages `Gateway` and `HTTPRoute` resources on the cluster and syncs them with the AGC data plane in Azure. Traffic flows from the internet through AGC in Azure cloud, through the Arc tunnel, to your on-prem pods.
 
 **Key concepts:**
-- **MetalLB** is a bare-metal load balancer for Kubernetes. It assigns external IP addresses from a configured pool.
-- **NGINX Ingress Controller** is the de facto standard for Kubernetes HTTP routing. It replaces Application Gateway's L7 routing capabilities.
-- Together, they provide the equivalent of `Application Gateway → Internal LB → Pod` from the cloud architecture.
+- **Application Gateway for Containers (AGC)** is an Azure cloud resource (`Microsoft.ServiceNetworking/trafficControllers`) that acts as the managed data plane for ingress. GA since November 2025.
+- **ALB Controller** is deployed as an **Arc extension** on the on-prem cluster (on cloud AKS, it's an add-on — same controller, different deployment model).
+- **Gateway API** resources (`Gateway` + `HTTPRoute`) define the routing rules — this is the Kubernetes community standard, replacing the deprecated `Ingress` resource.
+- The AGC configuration is **identical** to what you'd use on cloud AKS (`main` branch). This is the key benefit of the April 2026 migration.
+
+> **⚠️ Historical note:** Before April 2026, this step used NGINX Ingress Controller + MetalLB for on-prem ingress. Both NGINX Ingress (community) and AGIC were retired in March 2026. AGC with Arc extension is the replacement.
 
 **Actions:**
 
 ```bash
-# Install MetalLB
-helm repo add metallb https://metallb.github.io/metallb
-helm install metallb metallb/metallb -n metallb-system --create-namespace
+# Install ALB Controller as an Arc extension
+az k8s-extension create \
+  --cluster-name contoso-arc-k8s \
+  --resource-group rg-contoso-local \
+  --cluster-type connectedClusters \
+  --extension-type Microsoft.ServiceNetworking.Alb \
+  --name alb-controller
 
-# Configure MetalLB IP pool (adjust to your network)
+# Create the AGC resource in Azure (if not already provisioned via Bicep)
+az network alb create \
+  --resource-group rg-contoso-local \
+  --name contoso-agc \
+  --location <azure-region>
+
+# Create an AGC frontend
+az network alb frontend create \
+  --resource-group rg-contoso-local \
+  --alb-name contoso-agc \
+  --name contoso-frontend
+
+# Apply Gateway API resources to the cluster
 kubectl apply -f - <<EOF
-apiVersion: metallb.io/v1beta1
-kind: IPAddressPool
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
 metadata:
-  name: contoso-pool
-  namespace: metallb-system
+  name: contoso-gateway
+  namespace: contoso-insurance
+  annotations:
+    alb.networking.azure.io/alb-id: /subscriptions/<sub>/resourceGroups/rg-contoso-local/providers/Microsoft.ServiceNetworking/trafficControllers/contoso-agc
 spec:
-  addresses:
-  - 10.0.100.50-10.0.100.60
+  gatewayClassName: azure-alb-external
+  listeners:
+  - name: https
+    port: 443
+    protocol: HTTPS
+    tls:
+      mode: Terminate
+      certificateRefs:
+      - name: contoso-tls
 ---
-apiVersion: metallb.io/v1beta1
-kind: L2Advertisement
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
 metadata:
-  name: contoso-l2
-  namespace: metallb-system
+  name: contoso-web-route
+  namespace: contoso-insurance
+spec:
+  parentRefs:
+  - name: contoso-gateway
+  rules:
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /
+    backendRefs:
+    - name: web
+      port: 8080
 EOF
 
-# Install NGINX Ingress Controller
-helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
-helm install ingress-nginx ingress-nginx/ingress-nginx \
-  -n ingress-nginx --create-namespace
-
-# Verify the ingress controller got an external IP from MetalLB
-kubectl get svc -n ingress-nginx
+# Verify the Gateway is programmed
+kubectl get gateway contoso-gateway -n contoso-insurance
+# Expected: PROGRAMMED=True, ADDRESS=<AGC public IP>
 ```
+
+> **💡 Learning note:** The `Gateway` and `HTTPRoute` manifests above are **identical** to what you'd deploy on cloud AKS. The only difference is the ALB Controller deployment model (Arc extension vs AKS add-on). This is the power of AGC in connected mode — one ingress pattern for all environments.
 
 ---
 
@@ -766,36 +832,124 @@ kubectl get pods -n contoso-insurance
 
 # 2. Services have correct types
 kubectl get svc -n contoso-insurance
-# Expected: all ClusterIP except ingress
+# Expected: all ClusterIP
 
-# 3. Ingress is reachable
-curl -k https://<metallb-ip>
+# 3. Gateway is programmed
+kubectl get gateway -n contoso-insurance
+# Expected: contoso-gateway with PROGRAMMED=True
+
+# 4. AGC ingress is reachable (use the AGC public IP)
+AGC_IP=$(kubectl get gateway contoso-gateway -n contoso-insurance -o jsonpath='{.status.addresses[0].value}')
+curl -k https://$AGC_IP
 # Expected: Contoso Insurance home page
 
-# 4. API health check
-curl -k https://<metallb-ip>/api/health
+# 5. API health check (via AGC)
+curl -k https://$AGC_IP/api/health
 # Expected: Healthy
 
-# 5. RabbitMQ is processing events
+# 6. RabbitMQ is processing events
 kubectl logs -n contoso-insurance deployment/worker --tail=20
 # Expected: "Connected to RabbitMQ", "Waiting for messages"
 
-# 6. SQL MI connectivity
+# 7. SQL MI connectivity
 kubectl exec -it deployment/api -n contoso-insurance -- \
   curl -s http://localhost:8080/api/customers
 # Expected: JSON response (empty array or seeded data)
 
-# 7. Arc connectivity
+# 8. Arc connectivity
 az connectedk8s show --name contoso-arc-k8s --resource-group rg-contoso-local \
   --query connectivityStatus -o tsv
 # Expected: Connected
 
-# 8. Telemetry in Azure Monitor
+# 9. ALB Controller extension status
+az k8s-extension show \
+  --cluster-name contoso-arc-k8s \
+  --resource-group rg-contoso-local \
+  --cluster-type connectedClusters \
+  --name alb-controller --query provisioningState -o tsv
+# Expected: Succeeded
+
+# 10. Telemetry in Azure Monitor
 # Open Azure Portal → Monitor → Application Insights → Live Metrics
 # Expected: Request telemetry from the on-prem cluster
 ```
 
 > **🎉 Success!** If all checks pass, you have the Contoso Insurance application running on Azure Local with full Azure Arc management, monitoring, and identity integration — with zero application code changes.
+
+---
+
+## 🔄 Why AGC? — Unified Ingress for Cloud and Edge
+
+**Application Gateway for Containers (AGC)** is the successor to both AGIC and NGINX Ingress for Azure-connected Kubernetes clusters. As of April 2026, it is the only Azure-recommended ingress solution for AKS and Arc-enabled K8s.
+
+### Deprecation Timeline
+
+| Component | Status | Date | Replacement |
+|---|---|---|---|
+| **AGIC** (Application Gateway Ingress Controller) | ⛔ Retired | March 2026 | Application Gateway for Containers (AGC) |
+| **NGINX Ingress Controller** (community) | ⛔ Retired | March 2026 | AGC or vendor-supported alternatives |
+| **MetalLB** | ⚠️ Not needed | April 2026 | AGC manages load balancing for connected clusters |
+| **Kubernetes Ingress API** | ⚠️ Maintenance mode | Ongoing | Gateway API (`Gateway` + `HTTPRoute`) |
+| **Kubernetes 1.30** | ⛔ End of life | March 2026 | Kubernetes 1.35 (current GA) |
+
+### Why This Matters for Connected Mode
+
+Previously, migrating from cloud to on-prem meant **replacing** the ingress stack entirely:
+- Cloud: Application Gateway WAF v2 + AGIC
+- On-prem: NGINX Ingress Controller + MetalLB (completely different tools, configs, and operational knowledge)
+
+**Now with AGC**, the ingress layer is **identical**:
+- Cloud: AGC + ALB Controller (AKS add-on) + Gateway API
+- On-prem: AGC + ALB Controller (Arc extension) + Gateway API ← **SAME!**
+
+This means:
+- ✅ **One set of Gateway/HTTPRoute manifests** works everywhere
+- ✅ **One operational playbook** for ingress management
+- ✅ **No on-prem load balancer** to manage (MetalLB eliminated)
+- ✅ **Built-in WAF and TLS** via AGC — no cert-manager needed for ingress certs
+- ✅ **Automatic scaling** handled by Azure — no capacity planning for ingress
+
+### AGC Architecture in Connected Mode
+
+```
+                AGC Resource (Azure cloud)
+                Microsoft.ServiceNetworking/trafficControllers
+                ┌────────────────────────────────┐
+Internet ──►    │  Public IP + WAF + TLS          │
+                │  Near-instant autoscaling        │
+                │  Managed data plane              │
+                └────────────┬───────────────────┘
+                             │
+                      Arc Tunnel (443)
+                             │
+                ┌────────────▼───────────────────┐
+                │  ALB Controller (Arc extension) │
+                │  Manages Gateway + HTTPRoute    │  On-prem K8s cluster
+                │  Syncs state with AGC           │
+                └────────────┬───────────────────┘
+                             │
+                    ClusterIP services
+                     (Web, API, etc.)
+```
+
+> **AGC has been GA since November 2025.** Arc extension support for connected mode was added in early 2026. See the [`main` branch](../../tree/main) for the cloud AKS equivalent.
+
+---
+
+## ⚠️ Deprecated Components
+
+The following components have been removed from this architecture as of the April 2026 refresh:
+
+| Component | Removed | Reason | Replacement |
+|---|---|---|---|
+| NGINX Ingress Controller (community) | ✅ | Retired March 2026 | AGC with ALB Controller Arc extension |
+| MetalLB | ✅ | Not needed — AGC handles load balancing from Azure cloud | AGC |
+| Application Gateway WAF v2 + AGIC | ✅ | AGIC retired March 2026 | AGC with built-in WAF |
+| Kubernetes `Ingress` resources | ✅ | Superseded by Gateway API | `Gateway` + `HTTPRoute` resources |
+| Kubernetes 1.30 | ✅ | End of life March 2026 | Kubernetes 1.35 |
+| Helm (for ingress) | ✅ | NGINX + MetalLB Helm charts no longer needed | AGC installed via `az k8s-extension` |
+
+> **If you are following older tutorials** that reference NGINX Ingress, MetalLB, AGIC, or `Ingress` resources, those patterns are no longer supported. This repository uses the current Azure-recommended stack — AGC with Gateway API.
 
 ---
 

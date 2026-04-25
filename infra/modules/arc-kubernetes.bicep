@@ -12,10 +12,18 @@
 //   1. Azure Monitor Container Insights (replaces AKS OMS agent addon)
 //   2. Azure Policy (replaces AKS Azure Policy addon)
 //   3. Key Vault Secrets Provider (for syncing Azure KV secrets to K8s)
-//   4. Flux GitOps (for declarative, git-driven deployments)
+//   4. ALB Controller (MIGRATION: replaces NGINX Ingress, retired March 2026)
+//   5. Flux GitOps (for declarative, git-driven deployments)
+//
+// MIGRATION (April 2026):
+//   - Added ALB Controller extension for AGC support on Arc-enabled K8s
+//   - This enables Gateway API (replacing legacy Ingress API)
+//   - Traffic flows: Internet -> AGC (Azure) -> Arc tunnel -> on-prem pods
+//   - No MetalLB or NGINX needed — AGC handles everything from Azure cloud
 //
 // The actual K8s cluster lifecycle (create, scale, upgrade) is managed by
 // Azure Local / Windows Admin Center, NOT by Bicep.
+// ============================================================================
 //
 // WHAT STAYED THE SAME:
 //   - Container images are the same
@@ -29,6 +37,9 @@ param connectedClusterId string
 
 @description('Log Analytics workspace ID for Container Insights')
 param logAnalyticsWorkspaceId string
+
+@description('AGC Traffic Controller resource ID for ALB Controller extension')
+param agcTrafficControllerId string = ''
 
 @description('Resource tags')
 param tags object
@@ -110,6 +121,45 @@ resource kvSecretsExtension 'Microsoft.KubernetesConfiguration/extensions@2023-0
 }
 
 // ---------------------------------------------------------------------------
+// Arc Extension: ALB Controller (Application Gateway for Containers)
+// ---------------------------------------------------------------------------
+// MIGRATION (April 2026): Replaces NGINX Ingress Controller (retired March 2026).
+//
+// The ALB Controller extension enables AGC on Arc-enabled Kubernetes clusters.
+// This is the connected mode equivalent of the AKS ALB Controller managed addon.
+//
+// HOW IT WORKS:
+//   1. ALB Controller runs as pods on the on-prem Arc-enabled cluster
+//   2. It watches Gateway API resources (Gateway, HTTPRoute) in the cluster
+//   3. It configures the AGC Traffic Controller in Azure cloud
+//   4. Traffic flows: Internet -> AGC (Azure) -> Arc tunnel -> on-prem pods
+//
+// KEY ADVANTAGE: This is one of the most compelling features of connected mode!
+// You get Azure-managed L7 routing and WAF protection for your on-prem workloads
+// without exposing any on-prem IPs to the internet. No MetalLB, no NGINX, no
+// ModSecurity to manage. The ALB Controller handles everything declaratively.
+//
+// PREREQUISITES:
+//   - Gateway API CRDs must be installed on the cluster
+//   - Arc connectivity agent must be healthy (outbound HTTPS to Azure)
+//   - AGC Traffic Controller must be deployed (see appgateway.bicep)
+// ---------------------------------------------------------------------------
+
+resource albControllerExtension 'Microsoft.KubernetesConfiguration/extensions@2023-05-01' = {
+  name: 'alb-controller'
+  scope: connectedCluster
+  properties: {
+    extensionType: 'Microsoft.NetworkFunction.ALBController'
+    autoUpgradeMinorVersion: true
+    releaseTrain: 'Stable'
+    configurationSettings: {
+      // Link to the AGC Traffic Controller deployed in Azure
+      'albController.namespace': 'azure-alb-system'
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Flux GitOps Configuration
 // ---------------------------------------------------------------------------
 // MIGRATION NOTE: In the cloud deployment, CI/CD applied K8s manifests via
@@ -179,4 +229,5 @@ resource connectedCluster 'Microsoft.Kubernetes/connectedClusters@2024-01-01' ex
 
 output connectedClusterName string = connectedCluster.name
 output monitoringExtensionId string = monitoringExtension.id
+output albControllerExtensionId string = albControllerExtension.id
 output fluxConfigName string = fluxConfig.name
