@@ -60,3 +60,19 @@
 - Bicep `reference()` function can't be used for `location` property — must pass location as parameter
 - Connected mode keeps ACR, Key Vault, and Monitor in Azure cloud — only compute + data move on-prem
 - Application code is 100% unchanged — same containers, same env vars, same connection string format
+
+### AGC Migration — Deprecation Refactor (2026-07-15)
+- Replaced App Gateway WAF v2 with AGC (Application Gateway for Containers) on `main` branch
+- Replaced NGINX Ingress + MetalLB with AGC on `local-connected` branch
+- AGIC and NGINX Ingress Controller both RETIRED March 2026; AGC is the GA successor (Nov 2025)
+- Kubernetes version bumped from 1.30 → 1.35 (1.30 deprecated March 2026)
+- AKS API version: 2024-06-02-preview → 2024-09-01 (stable)
+- omsagent AKS addon → Azure Monitor managed monitoring addon (azureMonitorProfile)
+- ALB Controller: AKS gets managed addon, Arc-enabled K8s gets Arc extension (Microsoft.NetworkFunction.ALBController)
+- Gateway API (Gateway + HTTPRoute CRDs) replaces legacy Ingress API for both branches
+- AGC subnet requires delegation to Microsoft.ServiceNetworking/trafficControllers
+- Connected mode AGC: Internet → AGC (Azure cloud) → Arc tunnel → on-prem pods — no inbound firewall rules needed!
+- AGC provides unified ingress pattern for BOTH cloud AKS and Arc-enabled K8s — major simplification
+- Deleted k8s/ingress-nginx.yaml and k8s/metallb-config.yaml (retired components)
+- Network policies updated: ingress-nginx namespace → azure-alb-system namespace
+- Gateway API CRDs must be installed separately (v1.2.1 standard-install.yaml)
