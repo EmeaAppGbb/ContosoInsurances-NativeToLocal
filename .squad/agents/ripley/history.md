@@ -86,3 +86,12 @@
 - Key learning: The split between on-prem and cloud is the core concept — compute/data local, management/observability in Azure
 - Application code is identical across branches; only infra/ and k8s/ change
 
+### AGC Migration — README Updates (2025-07-25)
+- Updated README.md on BOTH `main` and `local-connected` branches for April 2026 AGC migration
+- **main branch:** Replaced App Gateway WAFv2 + AGIC with AGC in architecture diagram, tech stack, prerequisites, deploy steps. Added "Why AGC?" and "Deprecated Components" sections with full deprecation timeline.
+- **local-connected branch:** Replaced NGINX Ingress + MetalLB with AGC + ALB Controller Arc extension throughout. Rewrote topology diagram to show AGC in Azure cloud with Arc tunnel to on-prem pods. Rewrote Step 7 (Configure AGC with ALB Controller). Updated all comparison tables.
+- Key architectural insight: With AGC, the ingress layer is now IDENTICAL between cloud AKS and on-prem Arc K8s — this is a massive simplification for hybrid architectures
+- AGC uses `Microsoft.ServiceNetworking/trafficControllers` resource type, Gateway API (`Gateway` + `HTTPRoute`), ALB Controller (AKS add-on or Arc extension)
+- Deprecation timeline documented: AGIC retired March 2026, NGINX Ingress (community) retired March 2026, K8s 1.30 EOL March 2026, AGC GA since Nov 2025
+- Merge strategy: merged main→local-connected with conflict resolution, then applied local-connected specific changes on top
+
