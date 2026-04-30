@@ -59,14 +59,16 @@ spec:
             httpGet:
               path: /alive
               port: 8080
-            initialDelaySeconds: 10
-            periodSeconds: 15
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            timeoutSeconds: 10
           readinessProbe:
             httpGet:
               path: /health
               port: 8080
-            initialDelaySeconds: 5
-            periodSeconds: 10
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            timeoutSeconds: 10
 ---
 # MIGRATION: Changed from LoadBalancer (internal) to ClusterIP.
 # With AGC + Gateway API, the ALB Controller manages traffic routing.
