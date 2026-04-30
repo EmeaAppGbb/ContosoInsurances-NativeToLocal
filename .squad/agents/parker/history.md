@@ -46,3 +46,10 @@
 - Modular Bicep design (module outputs referenced by consumers) allows safe infrastructure swaps (e.g., SQL DB→MI)
 - Private cluster + App Gateway pattern provides strong security posture while maintaining accessibility
 - Zero-trust network policies (Calico) require explicit allow rules but prevent lateral movement
+
+### Entra ID-Only SQL Auth (2026-04-30)
+- MCAPS subscription policies deny Azure SQL with SQL auth; must use Entra ID-only
+- `azureADOnlyAuthentication: true` in the `administrators` block removes all SQL auth
+- Connection string uses `Authentication=Active Directory Default` which works with `DefaultAzureCredential` (.NET)
+- AKS kubelet managed identity can authenticate to SQL via Entra ID — no passwords in Key Vault
+- API version `2024-05-01-preview` supports inline `administrators` block on server creation
