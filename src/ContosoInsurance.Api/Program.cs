@@ -49,9 +49,11 @@ app.UseCors();
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
+}
 
-    // Auto-migrate and seed database in development
-    using var scope = app.Services.CreateScope();
+// Auto-migrate and seed database on startup
+using (var scope = app.Services.CreateScope())
+{
     var db = scope.ServiceProvider.GetRequiredService<InsuranceDbContext>();
     await db.Database.EnsureCreatedAsync();
     await SeedData.SeedAsync(db);
