@@ -53,3 +53,10 @@
 - Connection string uses `Authentication=Active Directory Default` which works with `DefaultAzureCredential` (.NET)
 - AKS kubelet managed identity can authenticate to SQL via Entra ID — no passwords in Key Vault
 - API version `2024-05-01-preview` supports inline `administrators` block on server creation
+
+### Full Deployment Success (2026-04-30T13-10Z)
+- **AKS Control Plane Poisoning:** Prior iterative `azd` deployments accumulated failed resources that degraded AKS control plane state. Solution: Create fresh AZD environment (`azd env new contoso-ins`) instead of retrying in poisoned environment.
+- **omsagent Addon Incompatibility:** Azure's omsagent addon fails preflight checks on AKS v1.29+ with stable API versions. Switched to simplified `azurepolicy`-only addon config; if Azure Monitor needed post-deployment, deploy as separate container agent pod.
+- **AKS API Version:** Bumped from 2024-09-01 to 2025-01-01 (stable + well-supported). containerInsights not in stable API; removed from azureMonitorProfile.
+- **Environment:** contoso-ins, subscription madasi-general-demo, North Europe. All 6 resource types deployed successfully (AKS, SQL, ACR, KV, App Gateway, VNet + private endpoints).
+- **Deployment Time:** 16 minutes end-to-end. Infrastructure ready for application workload deployment.
