@@ -60,3 +60,12 @@
 - **AKS API Version:** Bumped from 2024-09-01 to 2025-01-01 (stable + well-supported). containerInsights not in stable API; removed from azureMonitorProfile.
 - **Environment:** contoso-ins, subscription madasi-general-demo, North Europe. All 6 resource types deployed successfully (AKS, SQL, ACR, KV, App Gateway, VNet + private endpoints).
 - **Deployment Time:** 16 minutes end-to-end. Infrastructure ready for application workload deployment.
+
+### AZD Hooks Migration (2026-07-15)
+- Removed Aspire AppHost service from `azure.yaml` — AZD's Aspire integration only supports Container Apps, not AKS
+- Replaced with hook-based deploy: `postprovision` (AKS access + CRDs) and `deploy` (build + push + apply manifests)
+- Created `scripts/postprovision.ps1` and `scripts/deploy.ps1` (idempotent, pwsh)
+- Created multi-stage Dockerfiles for Api, Web, Worker using `mcr.microsoft.com/dotnet/nightly/sdk:10.0` and `aspnet:10.0`
+- K8s manifest substitution done in temp dir (`.k8s-deploy/`), never writes secrets to source files
+- RabbitMQ password generated deterministically from resource group name (consistent across redeploys)
+- SQL connection string fetched from Key Vault at deploy time (Entra ID auth, no SQL passwords)

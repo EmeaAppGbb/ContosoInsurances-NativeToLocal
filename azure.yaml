@@ -1,14 +1,20 @@
 # Azure Developer CLI (azd) configuration for Contoso Insurance
-# Uses Aspire-native pattern — azd discovers services from the AppHost project
+# Deploys to AKS using custom hooks (Aspire AppHost is dev-time only)
 name: contoso-insurance
 metadata:
-  template: contoso-insurance-aspire
-services:
-  app:
-    language: dotnet
-    project: src/ContosoInsurance.AppHost/ContosoInsurance.AppHost.csproj
-    host: containerapp
+  template: contoso-insurance-aks
 infra:
   provider: bicep
   path: infra
   module: main
+hooks:
+  postprovision:
+    shell: pwsh
+    run: ./scripts/postprovision.ps1
+    interactive: true
+    continueOnError: false
+  deploy:
+    shell: pwsh
+    run: ./scripts/deploy.ps1
+    interactive: true
+    continueOnError: false
