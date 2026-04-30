@@ -104,22 +104,9 @@ resource aks 'Microsoft.ContainerService/managedClusters@2025-01-01' = {
       }
     ]
 
-    // Container Insights via omsagent addon + Azure Policy addon
+    // Azure Policy addon
     addonProfiles: {
-      omsagent: {
-        enabled: true
-        config: {
-          logAnalyticsWorkspaceResourceID: logAnalyticsWorkspaceId
-        }
-      }
       azurepolicy: {
-        enabled: true
-      }
-    }
-
-    // Azure Monitor managed Prometheus metrics
-    azureMonitorProfile: {
-      metrics: {
         enabled: true
       }
     }
