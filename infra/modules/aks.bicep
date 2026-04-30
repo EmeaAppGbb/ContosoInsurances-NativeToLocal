@@ -48,8 +48,8 @@ var clusterName = '${abbrs.aksCluster}${resourceToken}'
 // AKS Cluster
 // ---------------------------------------------------------------------------
 
-// MIGRATION: API version updated from 2024-06-02-preview to 2024-09-01 (stable)
-resource aks 'Microsoft.ContainerService/managedClusters@2024-09-01' = {
+// MIGRATION: API version updated to 2025-01-01 to support azureMonitorProfile.containerInsights
+resource aks 'Microsoft.ContainerService/managedClusters@2025-01-01' = {
   name: clusterName
   location: location
   tags: tags
@@ -140,7 +140,7 @@ resource aks 'Microsoft.ContainerService/managedClusters@2024-09-01' = {
 }
 
 // User node pool for application workloads
-resource userPool 'Microsoft.ContainerService/managedClusters/agentPools@2024-09-01' = {
+resource userPool 'Microsoft.ContainerService/managedClusters/agentPools@2025-01-01' = {
   parent: aks
   name: 'workload'
   properties: {
