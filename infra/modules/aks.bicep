@@ -104,26 +104,23 @@ resource aks 'Microsoft.ContainerService/managedClusters@2025-01-01' = {
       }
     ]
 
-    // MIGRATION: Replaced omsagent addon with Azure Monitor managed addon.
-    // The omsagent addon is deprecated; Azure Monitor Container Insights now
-    // uses the managed monitoring addon pattern.
+    // Container Insights via omsagent addon + Azure Policy addon
     addonProfiles: {
-      azureMonitorMetrics: {
+      omsagent: {
         enabled: true
+        config: {
+          logAnalyticsWorkspaceResourceID: logAnalyticsWorkspaceId
+        }
       }
       azurepolicy: {
         enabled: true
       }
     }
 
-    // MIGRATION: Added Azure Monitor Container Insights via new monitoring profile.
+    // Azure Monitor managed Prometheus metrics
     azureMonitorProfile: {
       metrics: {
         enabled: true
-      }
-      containerInsights: {
-        enabled: true
-        logAnalyticsWorkspaceResourceId: logAnalyticsWorkspaceId
       }
     }
 
