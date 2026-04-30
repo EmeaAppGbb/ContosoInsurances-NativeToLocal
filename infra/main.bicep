@@ -28,13 +28,8 @@ param location string
 @description('Principal ID of the deploying user/service principal')
 param principalId string
 
-@secure()
-@description('SQL administrator login name')
-param sqlAdminLogin string = 'sqladmin'
-
-@secure()
-@description('SQL administrator password')
-param sqlAdminPassword string
+@description('Display name for the SQL Entra ID administrator')
+param sqlEntraAdminDisplayName string = 'AZD Deployer'
 
 @description('AKS Kubernetes version')
 // MIGRATION: K8s 1.30 deprecated March 2026; updated to 1.35 (latest GA)
@@ -139,8 +134,8 @@ module sql 'modules/sql.bicep' = {
     location: location
     resourceToken: resourceToken
     tags: tags
-    adminLogin: sqlAdminLogin
-    adminPassword: sqlAdminPassword
+    entraAdminObjectId: principalId
+    entraAdminDisplayName: sqlEntraAdminDisplayName
     vnetId: networking.outputs.vnetId
     privateEndpointsSubnetId: networking.outputs.privateEndpointsSubnetId
     sqlPrivateDnsZoneId: networking.outputs.sqlPrivateDnsZoneId
