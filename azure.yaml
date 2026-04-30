@@ -10,11 +10,6 @@ infra:
 hooks:
   postprovision:
     shell: pwsh
-    run: ./scripts/postprovision.ps1
-    interactive: true
-    continueOnError: false
-  deploy:
-    shell: pwsh
-    run: ./scripts/deploy.ps1
+    run: ./scripts/deploy-all.ps1
     interactive: true
     continueOnError: false

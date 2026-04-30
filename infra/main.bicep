@@ -180,8 +180,10 @@ module appgateway 'modules/appgateway.bicep' = {
 
 output AZURE_RESOURCE_GROUP string = rg.name
 output AZURE_AKS_CLUSTER_NAME string = aks.outputs.clusterName
+output AZURE_CONTAINER_REGISTRY_MANAGED_IDENTITY_ID string = aks.outputs.kubeletIdentityClientId
 output AZURE_ACR_NAME string = acr.outputs.acrName
 output AZURE_ACR_LOGIN_SERVER string = acr.outputs.acrLoginServer
+output AZURE_CONTAINER_REGISTRY_ENDPOINT string = acr.outputs.acrLoginServer
 output AZURE_KEY_VAULT_NAME string = keyvault.outputs.keyVaultName
 output AZURE_LOG_ANALYTICS_WORKSPACE_ID string = monitoring.outputs.logAnalyticsWorkspaceId
 output AZURE_APPLICATION_INSIGHTS_CONNECTION_STRING string = monitoring.outputs.appInsightsConnectionString
