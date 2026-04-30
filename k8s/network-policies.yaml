@@ -92,6 +92,24 @@ spec:
       ports:
         - port: 1433
           protocol: TCP
+    # IMDS for managed identity token acquisition
+    - to:
+        - ipBlock:
+            cidr: 169.254.169.254/32
+      ports:
+        - port: 80
+          protocol: TCP
+    # HTTPS for Entra ID token exchange (login.microsoftonline.com)
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - port: 443
+          protocol: TCP
     # DNS
     - to:
         - namespaceSelector: {}
@@ -131,6 +149,24 @@ spec:
             cidr: 10.0.17.0/24
       ports:
         - port: 1433
+          protocol: TCP
+    # IMDS for managed identity token acquisition
+    - to:
+        - ipBlock:
+            cidr: 169.254.169.254/32
+      ports:
+        - port: 80
+          protocol: TCP
+    # HTTPS for Entra ID token exchange
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - port: 443
           protocol: TCP
     # DNS
     - to:
