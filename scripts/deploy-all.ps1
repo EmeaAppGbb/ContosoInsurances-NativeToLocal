@@ -81,11 +81,11 @@ foreach ($img in $images) {
 # ---------------------------------------------------------------------------
 Write-Host "`n=== Step 3: Retrieving secrets ===" -ForegroundColor Cyan
 
-$sqlConnectionString = az keyvault secret show `
-    --vault-name $env:AZURE_KEY_VAULT_NAME `
-    --name "sql-connection-string" `
-    --query "value" -o tsv
-if ($LASTEXITCODE -ne 0) { throw "Failed to retrieve SQL connection string from Key Vault" }
+# Build SQL connection string with explicit managed identity (kubelet identity)
+$kubeletClientId = $env:AZURE_CONTAINER_REGISTRY_MANAGED_IDENTITY_ID
+$sqlServerFqdn = az sql server list --resource-group $env:AZURE_RESOURCE_GROUP --query "[0].fullyQualifiedDomainName" -o tsv
+if ($LASTEXITCODE -ne 0) { throw "Failed to retrieve SQL server FQDN" }
+$sqlConnectionString = "Server=tcp:${sqlServerFqdn},1433;Database=ContosoInsurance;Authentication=Active Directory Managed Identity;User Id=${kubeletClientId};Encrypt=true;TrustServerCertificate=false;Connection Timeout=30;"
 
 # Generate a deterministic RabbitMQ password (idempotent per environment)
 $rabbitmqPassword = [Convert]::ToBase64String(
