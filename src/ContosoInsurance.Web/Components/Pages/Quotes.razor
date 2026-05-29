@@ -158,13 +158,13 @@
         try
         {
             var client = HttpClientFactory.CreateClient("api");
-            var quotesTask = client.GetFromJsonAsync<List<Quote>>("/api/quotes");
-            var customersTask = client.GetFromJsonAsync<List<Customer>>("/api/customers");
+            var quotesTask = client.GetFromJsonAsync<PaginatedResponse<Quote>>("/api/quotes");
+            var customersTask = client.GetFromJsonAsync<PaginatedResponse<Customer>>("/api/customers");
 
             await Task.WhenAll(quotesTask, customersTask);
 
-            quotes = quotesTask.Result ?? [];
-            customers = customersTask.Result ?? [];
+            quotes = (quotesTask.Result?.Items ?? []).ToList();
+            customers = (customersTask.Result?.Items ?? []).ToList();
         }
         catch (Exception ex)
         {
@@ -198,7 +198,8 @@
                 successMessage = "Quote request submitted successfully!";
                 showNewQuoteForm = false;
                 quoteModel = new();
-                quotes = await client.GetFromJsonAsync<List<Quote>>("/api/quotes") ?? [];
+                var quotesResponse = await client.GetFromJsonAsync<PaginatedResponse<Quote>>("/api/quotes");
+                quotes = (quotesResponse?.Items ?? []).ToList();
             }
             else
             {

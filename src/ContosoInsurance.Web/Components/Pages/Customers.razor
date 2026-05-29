@@ -150,7 +150,8 @@
         try
         {
             var client = HttpClientFactory.CreateClient("api");
-            customers = await client.GetFromJsonAsync<List<Customer>>("/api/customers") ?? [];
+            var response = await client.GetFromJsonAsync<PaginatedResponse<Customer>>("/api/customers");
+            customers = (response?.Items ?? []).ToList();
         }
         catch (Exception ex)
         {
@@ -186,7 +187,8 @@
                 successMessage = $"Customer {customerModel.FirstName} {customerModel.LastName} added successfully!";
                 showNewCustomerForm = false;
                 customerModel = new();
-                customers = await client.GetFromJsonAsync<List<Customer>>("/api/customers") ?? [];
+                var customersResponse = await client.GetFromJsonAsync<PaginatedResponse<Customer>>("/api/customers");
+                customers = (customersResponse?.Items ?? []).ToList();
             }
             else
             {

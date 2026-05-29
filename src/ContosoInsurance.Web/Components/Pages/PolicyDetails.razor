@@ -130,8 +130,8 @@
                 return;
             }
 
-            var allClaims = await client.GetFromJsonAsync<List<Claim>>("/api/claims") ?? [];
-            policyClaims = allClaims.Where(c => c.PolicyId == Id).ToList();
+            var claimsResponse = await client.GetFromJsonAsync<PaginatedResponse<Claim>>("/api/claims");
+            policyClaims = (claimsResponse?.Items ?? []).Where(c => c.PolicyId == Id).ToList();
         }
         catch (Exception ex)
         {

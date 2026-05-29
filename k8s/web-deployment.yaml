@@ -41,8 +41,8 @@ spec:
           env:
             - name: ASPNETCORE_URLS
               value: "http://+:8080"
-            - name: services__api__http__0
-              value: "http://api-service.contoso-insurance.svc.cluster.local:8080"
+            - name: ApiBaseUrl
+              value: "http://api:8080"
             - name: APPLICATIONINSIGHTS_CONNECTION_STRING
               valueFrom:
                 configMapKeyRef:

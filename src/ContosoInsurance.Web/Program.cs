@@ -9,9 +9,10 @@ builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 
 // Register typed HttpClient for the API
+var apiBaseUrl = builder.Configuration["ApiBaseUrl"] ?? "https+http://api";
 builder.Services.AddHttpClient("api", client =>
 {
-    client.BaseAddress = new Uri("https+http://api");
+    client.BaseAddress = new Uri(apiBaseUrl);
 });
 
 var app = builder.Build();

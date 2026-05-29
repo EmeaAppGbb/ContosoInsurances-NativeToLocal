@@ -99,7 +99,8 @@
         try
         {
             var client = HttpClientFactory.CreateClient("api");
-            claims = await client.GetFromJsonAsync<List<Claim>>("/api/claims") ?? [];
+            var response = await client.GetFromJsonAsync<PaginatedResponse<Claim>>("/api/claims");
+            claims = (response?.Items ?? []).ToList();
         }
         catch (Exception ex)
         {
