@@ -37,6 +37,9 @@ param logAnalyticsWorkspaceId string
 @description('ACR resource ID for AcrPull role assignment')
 param acrId string
 
+@description('Whether to deploy AKS as a private cluster. Defaults to false for the learning lab experience.')
+param enablePrivateCluster bool = false
+
 // ---------------------------------------------------------------------------
 // Variables
 // ---------------------------------------------------------------------------
@@ -70,10 +73,10 @@ resource aks 'Microsoft.ContainerService/managedClusters@2025-01-01' = {
       loadBalancerSku: 'standard'
     }
 
-    // API server access — private with authorized IP ranges
+    // API server access — public by default for the lab, optionally private.
     apiServerAccessProfile: {
-      enablePrivateCluster: true
-      enablePrivateClusterPublicFQDN: true
+      enablePrivateCluster: enablePrivateCluster
+      enablePrivateClusterPublicFQDN: enablePrivateCluster
     }
 
     // OIDC and Workload Identity

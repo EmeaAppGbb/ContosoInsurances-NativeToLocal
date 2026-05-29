@@ -45,6 +45,9 @@ param aksUserNodeSize string = 'Standard_D4s_v3'
 @allowed(['Standard', 'Premium'])
 param acrSku string = 'Premium'
 
+@description('Whether to deploy AKS as a private cluster. Defaults to false for the learning lab scenario.')
+param enablePrivateCluster bool = false
+
 // ---------------------------------------------------------------------------
 // Variables
 // ---------------------------------------------------------------------------
@@ -123,6 +126,7 @@ module aks 'modules/aks.bicep' = {
     aksSubnetId: networking.outputs.aksSubnetId
     logAnalyticsWorkspaceId: monitoring.outputs.logAnalyticsWorkspaceId
     acrId: acr.outputs.acrId
+    enablePrivateCluster: enablePrivateCluster
   }
 }
 
