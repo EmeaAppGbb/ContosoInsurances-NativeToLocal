@@ -125,7 +125,7 @@ function Render-Manifests {
 
 Push-Location $repoRoot
 
-foreach ($commandName in @('azd', 'az', 'dotnet', 'kubectl', 'git')) {
+foreach ($commandName in @('azd', 'az', 'dotnet', 'kubectl', 'git', 'helm')) {
     if (-not (Get-Command $commandName -ErrorAction SilentlyContinue)) {
         throw "Required command '$commandName' is not available on PATH."
     }
@@ -190,6 +190,58 @@ try {
     Write-Step 'Installing Gateway API CRDs'
     Invoke-ExternalCommand -FailureMessage 'Failed to install Gateway API CRDs.' -ScriptBlock {
         kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.2.1/standard-install.yaml
+    }
+
+    Write-Step 'Installing ALB Controller for AGC'
+    $kubeletClientId = Get-CommandOutput -FailureMessage 'Failed to get kubelet identity client ID.' -ScriptBlock {
+        az aks show --resource-group $resourceGroup --name $aksClusterName --query "identityProfile.kubeletidentity.clientId" -o tsv
+    }
+    $kubeletObjectId = Get-CommandOutput -FailureMessage 'Failed to get kubelet identity object ID.' -ScriptBlock {
+        az aks show --resource-group $resourceGroup --name $aksClusterName --query "identityProfile.kubeletidentity.objectId" -o tsv
+    }
+    $kubeletIdName = Get-CommandOutput -FailureMessage 'Failed to get kubelet identity name.' -ScriptBlock {
+        az aks show --resource-group $resourceGroup --name $aksClusterName --query "identityProfile.kubeletidentity.resourceId" -o tsv
+    }
+    $mcResourceGroup = Get-CommandOutput -FailureMessage 'Failed to get MC resource group.' -ScriptBlock {
+        az aks show --resource-group $resourceGroup --name $aksClusterName --query "nodeResourceGroup" -o tsv
+    }
+    $oidcIssuer = Get-CommandOutput -FailureMessage 'Failed to get OIDC issuer.' -ScriptBlock {
+        az aks show --resource-group $resourceGroup --name $aksClusterName --query "oidcIssuerProfile.issuerUrl" -o tsv
+    }
+    $identityName = ($kubeletIdName -split '/')[-1]
+
+    # Create federated credential for ALB Controller service account (idempotent)
+    $existingFedCred = & az identity federated-credential show --name "alb-controller-fedcred" --identity-name $identityName --resource-group $mcResourceGroup 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "Creating federated credential for ALB Controller..."
+        Invoke-ExternalCommand -FailureMessage 'Failed to create federated credential.' -ScriptBlock {
+            az identity federated-credential create --name "alb-controller-fedcred" --identity-name $identityName --resource-group $mcResourceGroup --issuer $oidcIssuer --subject "system:serviceaccount:azure-alb-system:alb-controller-sa" --audiences "api://AzureADTokenExchange"
+        }
+    } else {
+        Write-Host "Federated credential already exists."
+    }
+
+    # Grant RBAC roles (idempotent — az role assignment create skips if exists)
+    Write-Host "Ensuring RBAC: Reader on resource group..."
+    & az role assignment create --assignee-object-id $kubeletObjectId --assignee-principal-type ServicePrincipal --role "Reader" --scope "/subscriptions/$((az account show --query id -o tsv 2>$null))/resourceGroups/$resourceGroup" 2>$null | Out-Null
+    Write-Host "Ensuring RBAC: AppGw for Containers Configuration Manager on AGC..."
+    & az role assignment create --assignee-object-id $kubeletObjectId --assignee-principal-type ServicePrincipal --role "AppGw for Containers Configuration Manager" --scope $agcResourceId 2>$null | Out-Null
+
+    # Install ALB Controller via Helm (idempotent)
+    $helmInstalled = & helm list -n azure-alb-system -q 2>$null
+    if ($helmInstalled -notcontains 'alb-controller') {
+        Write-Host "Installing ALB Controller Helm chart..."
+        Invoke-ExternalCommand -FailureMessage 'Failed to install ALB Controller.' -ScriptBlock {
+            helm install alb-controller oci://mcr.microsoft.com/application-lb/charts/alb-controller --version 1.3.7 --set albController.namespace=azure-alb-system --set "albController.podIdentity.clientID=$kubeletClientId" --create-namespace --namespace azure-alb-system --skip-schema-validation
+        }
+    } else {
+        Write-Host "ALB Controller already installed."
+    }
+
+    # Wait for ALB Controller to be ready
+    Write-Host "Waiting for ALB Controller pods..."
+    Invoke-ExternalCommand -FailureMessage 'ALB Controller did not become ready.' -ScriptBlock {
+        kubectl rollout status deployment/alb-controller --namespace azure-alb-system --timeout=120s
     }
 
     Write-Step 'Rendering Kubernetes manifests'
