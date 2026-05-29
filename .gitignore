@@ -52,3 +52,9 @@ secrets.json
 
 # Aspire
 .aspire/
+
+# Deploy temp directory
+.k8s-deploy/
+
+# Temp deploy manifests
+.k8s-deploy/

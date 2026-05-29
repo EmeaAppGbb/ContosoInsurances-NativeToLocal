@@ -1,46 +1,15 @@
-# ============================================================================
-# Azure Developer CLI (azd) configuration - Azure Local Connected Mode
-# ============================================================================
-#
-# MIGRATION NOTE (from main branch):
-# The cloud deployment used azd's built-in Aspire/Container Apps integration.
-# For Azure Local connected mode:
-#
-# 1. infra deploys Azure-side resources (ACR, Key Vault, Monitor, AGC) + Arc config
-# 2. K8s manifests are applied via GitOps (Flux) or CI/CD pipeline
-# 3. AZD handles the Azure resource provisioning; K8s deployment is separate
-#
-# MIGRATION (April 2026):
-# - AGC (Application Gateway for Containers) now deployed as Azure resource
-# - ALB Controller Arc extension manages AGC from the on-prem cluster
-# - Removed NGINX Ingress / MetalLB deployment steps (both RETIRED March 2026)
-# - Gateway API CRDs must be installed on the Arc-enabled cluster
-#
-# DEPLOYMENT WORKFLOW:
-#   1. azd provision - deploys Bicep (Azure resources + Arc extensions + AGC)
-#   2. azd deploy - builds containers, pushes to ACR
-#   3. Install Gateway API CRDs on Arc cluster (if not already present)
-#   4. Flux GitOps (or CI/CD) applies K8s manifests to Arc-enabled cluster
-# ============================================================================
+# Azure Developer CLI (azd) configuration for Contoso Insurance
+# Deploys to AKS using custom hooks (Aspire AppHost is dev-time only)
 name: contoso-insurance
 metadata:
-  template: contoso-insurance-azure-local-connected
+  template: contoso-insurance-aks
 infra:
   provider: bicep
   path: infra
   module: main
-# Hook scripts for Azure Local deployment
 hooks:
   postprovision:
-    shell: sh
-    run: |
-      echo "=== Post-Provision: Azure Local Connected Mode ==="
-      echo "Azure resources provisioned (including AGC). Next steps:"
-      echo "1. Ensure Arc-connected cluster is accessible"
-      echo "2. Install Gateway API CRDs:"
-      echo "   kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.2.1/standard-install.yaml"
-      echo "3. Create ACR pull secret: kubectl create secret docker-registry acr-pull-secret ..."
-      echo "4. Apply K8s manifests or wait for Flux GitOps sync"
-      echo ""
-      echo "To get Arc cluster credentials:"
-      echo "  az connectedk8s proxy --name <cluster> --resource-group <rg>"
+    shell: pwsh
+    run: ./scripts/deploy-all.ps1
+    interactive: true
+    continueOnError: false

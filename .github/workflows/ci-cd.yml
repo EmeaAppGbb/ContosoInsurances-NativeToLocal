@@ -1,35 +1,15 @@
 # ============================================================================
-# Contoso Insurance — CI/CD Pipeline (Azure Local Connected Mode)
-# ============================================================================
-#
-# MIGRATION NOTE (from main branch):
-# This pipeline was updated for Azure Local connected mode deployment:
-#
-# 1. BUILD & TEST — UNCHANGED. Same .NET build, same tests.
-# 2. BUILD IMAGES — UNCHANGED. Same ACR, same container images.
-# 3. DEPLOY — CHANGED:
-#    - Uses `az connectedk8s proxy` instead of `az aks get-credentials`
-#    - Deploys to Arc-enabled K8s instead of AKS
-#    - Alternative: Flux GitOps handles deployment automatically
-#    - ACR pull secret must be pre-configured on the cluster
-#
-# MIGRATION (April 2026):
-#    - Removed NGINX Ingress / MetalLB deployment steps (both RETIRED March 2026)
-#    - Added Gateway API CRD installation step (required for AGC + ALB Controller)
-#    - AGC resource ID is substituted into web-deployment.yaml for Gateway annotation
-#    - Traffic now flows: Internet → AGC (Azure) → Arc tunnel → on-prem pods
-#
-# The key insight: APPLICATION CODE IS UNCHANGED. The same containers that
-# ran on AKS in Azure now run on Arc-enabled K8s on Azure Local.
+# Contoso Insurance — CI/CD Pipeline
+# Builds, tests, containerizes, and deploys the application to AKS via AZD.
 # ============================================================================
 
-name: CI/CD — Build and Deploy (Azure Local Connected)
+name: CI/CD — Build and Deploy
 
 on:
   push:
-    branches: [local-connected]
+    branches: [main]
   pull_request:
-    branches: [local-connected]
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -40,11 +20,10 @@ env:
   DOTNET_VERSION: "10.0.x"
   AZURE_ENV_NAME: ${{ vars.AZURE_ENV_NAME || 'dev' }}
   AZURE_LOCATION: ${{ vars.AZURE_LOCATION || 'eastus2' }}
-  AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP || 'rg-dev' }}
 
 jobs:
   # --------------------------------------------------------------------------
-  # Build & Test — UNCHANGED from cloud deployment
+  # Build & Test
   # --------------------------------------------------------------------------
   build-and-test:
     name: Build & Test
@@ -74,13 +53,12 @@ jobs:
           path: TestResults/*.trx
 
   # --------------------------------------------------------------------------
-  # Build Container Images & Push to ACR — UNCHANGED from cloud deployment
-  # Same images, same registry, same tags
+  # Build Container Images & Push to ACR
   # --------------------------------------------------------------------------
   build-images:
     name: Build Container Images
     needs: build-and-test
-    if: github.event_name == 'push' && github.ref == 'refs/heads/local-connected'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     outputs:
       image_tag: ${{ steps.meta.outputs.tag }}
@@ -97,7 +75,7 @@ jobs:
       - name: Get ACR details
         id: acr
         run: |
-          ACR_NAME=$(az acr list --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --query '[0].name' -o tsv)
+          ACR_NAME=$(az acr list --resource-group rg-${{ env.AZURE_ENV_NAME }} --query '[0].name' -o tsv)
           ACR_LOGIN_SERVER=$(az acr show --name $ACR_NAME --query loginServer -o tsv)
           echo "name=$ACR_NAME" >> $GITHUB_OUTPUT
           echo "login_server=$ACR_LOGIN_SERVER" >> $GITHUB_OUTPUT
@@ -125,15 +103,10 @@ jobs:
           docker push ${{ steps.acr.outputs.login_server }}/contoso-insurance/worker:${{ steps.meta.outputs.tag }}
 
   # --------------------------------------------------------------------------
-  # Deploy to Arc-enabled Kubernetes on Azure Local
-  # --------------------------------------------------------------------------
-  # CHANGED from cloud deployment:
-  # - Uses `az connectedk8s proxy` instead of `az aks get-credentials`
-  # - The Arc proxy creates a secure tunnel to the on-premises cluster
-  # - Alternative: Let Flux GitOps handle deployment (no kubectl needed)
+  # Deploy to AKS
   # --------------------------------------------------------------------------
   deploy:
-    name: Deploy to Arc-enabled K8s
+    name: Deploy to AKS
     needs: build-images
     runs-on: ubuntu-latest
     environment: production
@@ -147,31 +120,21 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      # CHANGE: Use Arc connected cluster proxy instead of AKS credentials
-      # The Arc proxy creates a secure reverse tunnel to the on-premises cluster
-      - name: Connect to Arc-enabled cluster
+      - name: Get cluster credentials
         run: |
-          # Install connectedk8s extension if not present
-          az extension add --name connectedk8s --yes || true
-          # Get connected cluster name
-          ARC_CLUSTER=$(az connectedk8s list --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --query '[0].name' -o tsv)
-          echo "Connecting to Arc cluster: $ARC_CLUSTER"
-          # Start proxy in background (creates kubectl context)
-          az connectedk8s proxy --name $ARC_CLUSTER --resource-group ${{ env.AZURE_RESOURCE_GROUP }} &
-          sleep 10  # Wait for proxy to establish
+          AKS_NAME=$(az aks list --resource-group rg-${{ env.AZURE_ENV_NAME }} --query '[0].name' -o tsv)
+          az aks get-credentials --resource-group rg-${{ env.AZURE_ENV_NAME }} --name $AKS_NAME --overwrite-existing
 
       - name: Get deployment details
         id: details
         run: |
-          ACR_LOGIN_SERVER=$(az acr list --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --query '[0].loginServer' -o tsv)
-          APPINSIGHTS_CS=$(az monitor app-insights component show --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --query '[0].connectionString' -o tsv)
-          KV_NAME=$(az keyvault list --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --query '[0].name' -o tsv)
+          ACR_LOGIN_SERVER=$(az acr list --resource-group rg-${{ env.AZURE_ENV_NAME }} --query '[0].loginServer' -o tsv)
+          APPINSIGHTS_CS=$(az monitor app-insights component show --resource-group rg-${{ env.AZURE_ENV_NAME }} --query '[0].connectionString' -o tsv)
+          KV_NAME=$(az keyvault list --resource-group rg-${{ env.AZURE_ENV_NAME }} --query '[0].name' -o tsv)
           SQL_CS=$(az keyvault secret show --vault-name $KV_NAME --name sql-connection-string --query value -o tsv)
           RABBITMQ_PW=$(az keyvault secret show --vault-name $KV_NAME --name rabbitmq-password --query value -o tsv)
-          ARC_CLUSTER=$(az connectedk8s list --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --query '[0].name' -o tsv)
           echo "acr_login_server=$ACR_LOGIN_SERVER" >> $GITHUB_OUTPUT
           echo "appinsights_cs=$APPINSIGHTS_CS" >> $GITHUB_OUTPUT
-          echo "arc_cluster=$ARC_CLUSTER" >> $GITHUB_OUTPUT
           echo "::add-mask::$SQL_CS"
           echo "sql_cs=$SQL_CS" >> $GITHUB_OUTPUT
           echo "::add-mask::$RABBITMQ_PW"
@@ -182,9 +145,7 @@ jobs:
 
       - name: Deploy ConfigMap
         run: |
-          sed -e "s|__APPINSIGHTS_CONNECTION_STRING__|${{ steps.details.outputs.appinsights_cs }}|g" \
-              -e "s|__ARC_CLUSTER_NAME__|${{ steps.details.outputs.arc_cluster }}|g" \
-              k8s/configmap.yaml | kubectl apply -f -
+          sed "s|__APPINSIGHTS_CONNECTION_STRING__|${{ steps.details.outputs.appinsights_cs }}|g" k8s/configmap.yaml | kubectl apply -f -
 
       - name: Deploy Secrets
         run: |
@@ -192,20 +153,12 @@ jobs:
               -e "s|__RABBITMQ_PASSWORD__|${{ steps.details.outputs.rabbitmq_pw }}|g" \
               k8s/secrets.yaml | kubectl apply -f -
 
-      # NEW: Ensure ACR pull secret exists
-      - name: Ensure ACR pull secret
-        run: |
-          if ! kubectl get secret acr-pull-secret -n contoso-insurance 2>/dev/null; then
-            echo "WARNING: ACR pull secret not found. Create it manually:"
-            echo "  kubectl create secret docker-registry acr-pull-secret ..."
-          fi
-
       - name: Deploy RabbitMQ
         run: kubectl apply -f k8s/rabbitmq-deployment.yaml
 
-      # MIGRATION: Install Gateway API CRDs (required for AGC + ALB Controller)
-      # These CRDs define Gateway and HTTPRoute resources used in web-deployment.yaml.
-      # Replaces the NGINX IngressClass that was previously auto-installed.
+      # MIGRATION: Install Gateway API CRDs (required for AGC + ALB Controller).
+      # Gateway API replaces the legacy Ingress API. These CRDs define the
+      # Gateway and HTTPRoute resources used in web-deployment.yaml.
       - name: Install Gateway API CRDs
         run: |
           kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.2.1/standard-install.yaml
@@ -216,7 +169,7 @@ jobs:
           ACR: ${{ steps.details.outputs.acr_login_server }}
         run: |
           # Get AGC resource ID for Gateway API annotation
-          AGC_ID=$(az network traffic-controller list --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --query '[0].id' -o tsv 2>/dev/null || echo "")
+          AGC_ID=$(az network traffic-controller list --resource-group rg-${{ env.AZURE_ENV_NAME }} --query '[0].id' -o tsv 2>/dev/null || echo "")
           for manifest in k8s/api-deployment.yaml k8s/worker-deployment.yaml k8s/web-deployment.yaml; do
             sed -e "s|__ACR_LOGIN_SERVER__|$ACR|g" \
                 -e "s|__TAG__|$TAG|g" \

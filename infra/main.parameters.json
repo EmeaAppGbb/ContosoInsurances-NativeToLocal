@@ -10,18 +10,6 @@
     },
     "principalId": {
       "value": "${AZURE_PRINCIPAL_ID}"
-    },
-    "connectedClusterId": {
-      "value": "${AZURE_CONNECTED_CLUSTER_ID}"
-    },
-    "customLocationName": {
-      "value": "${AZURE_CUSTOM_LOCATION_NAME}"
-    },
-    "sqlAdminLogin": {
-      "value": "sqladmin"
-    },
-    "sqlAdminPassword": {
-      "value": "${SQL_ADMIN_PASSWORD}"
     }
   }
 }

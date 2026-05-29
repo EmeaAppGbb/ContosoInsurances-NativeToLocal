@@ -1,61 +1,11 @@
 // ============================================================================
-// Networking Module - Azure Local Network Topology Documentation
+// Networking Module — VNet, Subnets, NSGs, Private DNS Zones
+// All services run in a private VNet. Only AGC (Application Gateway for Containers)
+// has a public-facing frontend. MIGRATION: Replaced App Gateway WAF v2 with AGC.
 // ============================================================================
-//
-// MIGRATION NOTE (from main branch):
-// The cloud networking.bicep deployed an Azure VNet with 4 subnets, NSGs, and
-// private DNS zones. Azure Local does NOT use Azure VNet - it has its own
-// networking stack:
-//
-//   - Azure Local SDN (Software Defined Networking) or physical switches
-//   - Logical networks defined in Windows Admin Center / Azure Local portal
-//   - No private endpoints needed (services run on the same physical network)
-//   - No private DNS zones needed (K8s internal DNS handles service discovery)
-//
-// This module now serves as DOCUMENTATION of the expected network layout and
-// deploys a minimal set of tags/metadata for tracking purposes.
-//
-// MIGRATION (April 2026): Updated for AGC (Application Gateway for Containers).
-// MetalLB and NGINX Ingress Controller are NO LONGER NEEDED in connected mode.
-// AGC provides the external endpoint in Azure cloud, and traffic flows through
-// the Arc connectivity tunnel to the on-prem cluster. This eliminates the need
-// for on-prem external IPs and simplifies firewall configuration.
-//
-// PHYSICAL NETWORK REQUIREMENTS for Azure Local:
-// +-------------------------------------------------------------------------+
-// | Network              | VLAN | Subnet          | Purpose                |
-// +-------------------------------------------------------------------------+
-// | Management           | 10   | 10.0.0.0/24     | Azure Local mgmt,     |
-// |                      |      |                 | Arc agent comms        |
-// | Compute/Workload     | 20   | 10.0.1.0/20     | K8s pods, services,   |
-// |                      |      |                 | Arc SQL MI             |
-// | Storage              | 30   | 10.0.16.0/24    | S2D / CSV traffic     |
-// | External/Internet    | 40   | 10.0.18.0/24    | Outbound to Azure     |
-// |                      |      |                 | (AGC tunnel, Arc)      |
-// +-------------------------------------------------------------------------+
-//
-// FIREWALL RULES (equivalent to cloud NSGs):
-// These must be configured on the physical firewall or Azure Local SDN:
-//
-// Inbound:
-//   - MIGRATION: No inbound rules needed for web traffic! AGC in Azure cloud
-//     handles all internet-facing traffic. The Arc tunnel is outbound-only.
-//   - TCP 6443 from Management -> K8s API server
-//   - All from Management subnet -> all (cluster management)
-//
-// Outbound (required for connected mode + AGC):
-//   - TCP 443 -> *.azure.com, *.microsoft.com (Arc agent, ACR, KV, Monitor, AGC)
-//   - TCP 443 -> mcr.microsoft.com (container images)
-//   - TCP 443 -> *.blob.core.windows.net (Arc data upload)
-//   - TCP 443 -> login.microsoftonline.com (Entra ID auth)
-//   - TCP 443 -> management.azure.com (ARM API)
-//   - TCP 443 -> guestnotificationservice.azure.com (Arc notifications)
-//   - TCP 443 -> *.servicebus.windows.net (Arc tunnel for AGC traffic)
-//
-// NSG-EQUIVALENT RULES for pod-to-pod traffic:
-//   - Handled by Kubernetes NetworkPolicy (see k8s/network-policies.yaml)
-//   - Same zero-trust model as cloud: default-deny + explicit allow
-// ============================================================================
+
+@description('Azure region')
+param location string
 
 @description('Unique resource token for naming')
 param resourceToken string
@@ -64,45 +14,311 @@ param resourceToken string
 param tags object
 
 // ---------------------------------------------------------------------------
-// Network Topology Documentation (as Bicep variables for reference)
-// ---------------------------------------------------------------------------
-// These variables document the expected network layout. They are not deployed
-// as Azure resources but serve as a single source of truth for the team.
-//
-// MIGRATION: Removed MetalLB IP range - no longer needed with AGC.
-// External network is now used only for outbound connectivity to Azure.
+// Variables
 // ---------------------------------------------------------------------------
 
-var networkTopology = {
-  management: {
-    name: 'Management Network'
-    vlan: 10
-    subnet: '10.0.0.0/24'
-    gateway: '10.0.0.1'
-    purpose: 'Azure Local cluster management, Arc agent communication, Windows Admin Center'
+var abbrs = loadJsonContent('../abbreviations.json')
+var vnetName = '${abbrs.virtualNetwork}${resourceToken}'
+
+var vnetAddressPrefix = '10.0.0.0/16'
+var subnets = {
+  aks: { name: 'snet-aks', prefix: '10.0.0.0/20' }               // /20 = 4096 IPs for AKS pods (Azure CNI)
+  sql: { name: 'snet-sql', prefix: '10.0.16.0/24' }              // /24 for SQL MI or private endpoints
+  privateEndpoints: { name: 'snet-private-endpoints', prefix: '10.0.17.0/24' }
+  // MIGRATION: Renamed from snet-appgw to snet-agc. Application Gateway WAF v2
+  // was retired; replaced by Application Gateway for Containers (AGC).
+  // AGC requires subnet delegation to Microsoft.ServiceNetworking/trafficControllers.
+  agc: { name: 'snet-agc', prefix: '10.0.18.0/24' }             // AGC requires dedicated delegated subnet
+}
+
+// ---------------------------------------------------------------------------
+// Network Security Groups
+// ---------------------------------------------------------------------------
+
+resource nsgAks 'Microsoft.Network/networkSecurityGroups@2024-01-01' = {
+  name: '${abbrs.networkSecurityGroup}aks-${resourceToken}'
+  location: location
+  tags: tags
+  properties: {
+    securityRules: [
+      {
+        name: 'DenyAllInbound'
+        properties: {
+          priority: 4096
+          direction: 'Inbound'
+          access: 'Deny'
+          protocol: '*'
+          sourcePortRange: '*'
+          destinationPortRange: '*'
+          sourceAddressPrefix: '*'
+          destinationAddressPrefix: '*'
+        }
+      }
+      {
+        name: 'AllowVNetInbound'
+        properties: {
+          priority: 100
+          direction: 'Inbound'
+          access: 'Allow'
+          protocol: '*'
+          sourcePortRange: '*'
+          destinationPortRange: '*'
+          sourceAddressPrefix: 'VirtualNetwork'
+          destinationAddressPrefix: 'VirtualNetwork'
+        }
+      }
+      {
+        name: 'AllowAzureLoadBalancerInbound'
+        properties: {
+          priority: 110
+          direction: 'Inbound'
+          access: 'Allow'
+          protocol: '*'
+          sourcePortRange: '*'
+          destinationPortRange: '*'
+          sourceAddressPrefix: 'AzureLoadBalancer'
+          destinationAddressPrefix: '*'
+        }
+      }
+    ]
   }
-  compute: {
-    name: 'Compute/Workload Network'
-    vlan: 20
-    subnet: '10.0.1.0/20'
-    gateway: '10.0.1.1'
-    purpose: 'Kubernetes pods, services, Arc SQL MI endpoints'
+}
+
+resource nsgSql 'Microsoft.Network/networkSecurityGroups@2024-01-01' = {
+  name: '${abbrs.networkSecurityGroup}sql-${resourceToken}'
+  location: location
+  tags: tags
+  properties: {
+    securityRules: [
+      {
+        name: 'DenyAllInbound'
+        properties: {
+          priority: 4096
+          direction: 'Inbound'
+          access: 'Deny'
+          protocol: '*'
+          sourcePortRange: '*'
+          destinationPortRange: '*'
+          sourceAddressPrefix: '*'
+          destinationAddressPrefix: '*'
+        }
+      }
+      {
+        name: 'AllowSqlFromAks'
+        properties: {
+          priority: 100
+          direction: 'Inbound'
+          access: 'Allow'
+          protocol: 'Tcp'
+          sourcePortRange: '*'
+          destinationPortRange: '1433'
+          sourceAddressPrefix: subnets.aks.prefix
+          destinationAddressPrefix: '*'
+        }
+      }
+    ]
   }
-  storage: {
-    name: 'Storage Network'
-    vlan: 30
-    subnet: '10.0.16.0/24'
-    gateway: '10.0.16.1'
-    purpose: 'Storage Spaces Direct (S2D) / CSV replication traffic'
+}
+
+resource nsgPrivateEndpoints 'Microsoft.Network/networkSecurityGroups@2024-01-01' = {
+  name: '${abbrs.networkSecurityGroup}pe-${resourceToken}'
+  location: location
+  tags: tags
+  properties: {
+    securityRules: [
+      {
+        name: 'DenyAllInbound'
+        properties: {
+          priority: 4096
+          direction: 'Inbound'
+          access: 'Deny'
+          protocol: '*'
+          sourcePortRange: '*'
+          destinationPortRange: '*'
+          sourceAddressPrefix: '*'
+          destinationAddressPrefix: '*'
+        }
+      }
+      {
+        name: 'AllowVNetInbound'
+        properties: {
+          priority: 100
+          direction: 'Inbound'
+          access: 'Allow'
+          protocol: '*'
+          sourcePortRange: '*'
+          destinationPortRange: '*'
+          sourceAddressPrefix: 'VirtualNetwork'
+          destinationAddressPrefix: 'VirtualNetwork'
+        }
+      }
+    ]
   }
-  external: {
-    name: 'External Network'
-    vlan: 40
-    subnet: '10.0.18.0/24'
-    gateway: '10.0.18.1'
-    // MIGRATION: Updated purpose - MetalLB no longer used. AGC handles ingress
-    // from Azure cloud via Arc tunnel. External network is for outbound only.
-    purpose: 'Outbound internet access (Arc agent, AGC tunnel, Azure PaaS)'
+}
+
+// MIGRATION: NSG updated for AGC. Application Gateway required GatewayManager
+// inbound on ports 65200-65535. AGC does NOT require those ports — it uses
+// the ALB Controller inside the cluster. NSG allows HTTP/HTTPS from internet.
+resource nsgAgc 'Microsoft.Network/networkSecurityGroups@2024-01-01' = {
+  name: '${abbrs.networkSecurityGroup}agc-${resourceToken}'
+  location: location
+  tags: tags
+  properties: {
+    securityRules: [
+      {
+        name: 'AllowHttpsInbound'
+        properties: {
+          priority: 100
+          direction: 'Inbound'
+          access: 'Allow'
+          protocol: 'Tcp'
+          sourcePortRange: '*'
+          destinationPortRange: '443'
+          sourceAddressPrefix: 'Internet'
+          destinationAddressPrefix: '*'
+        }
+      }
+      {
+        name: 'AllowHttpInbound'
+        properties: {
+          priority: 110
+          direction: 'Inbound'
+          access: 'Allow'
+          protocol: 'Tcp'
+          sourcePortRange: '*'
+          destinationPortRange: '80'
+          sourceAddressPrefix: 'Internet'
+          destinationAddressPrefix: '*'
+        }
+      }
+      {
+        // MIGRATION: Removed AllowGatewayManager rule (ports 65200-65535).
+        // App Gateway WAF v2 required this for Azure control plane management.
+        // AGC does not need it — the ALB Controller runs inside the K8s cluster.
+        name: 'DenyAllInbound'
+        properties: {
+          priority: 4096
+          direction: 'Inbound'
+          access: 'Deny'
+          protocol: '*'
+          sourcePortRange: '*'
+          destinationPortRange: '*'
+          sourceAddressPrefix: '*'
+          destinationAddressPrefix: '*'
+        }
+      }
+    ]
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Virtual Network
+// ---------------------------------------------------------------------------
+
+resource vnet 'Microsoft.Network/virtualNetworks@2024-01-01' = {
+  name: vnetName
+  location: location
+  tags: tags
+  properties: {
+    addressSpace: {
+      addressPrefixes: [vnetAddressPrefix]
+    }
+    subnets: [
+      {
+        name: subnets.aks.name
+        properties: {
+          addressPrefix: subnets.aks.prefix
+          networkSecurityGroup: { id: nsgAks.id }
+        }
+      }
+      {
+        name: subnets.sql.name
+        properties: {
+          addressPrefix: subnets.sql.prefix
+          networkSecurityGroup: { id: nsgSql.id }
+        }
+      }
+      {
+        name: subnets.privateEndpoints.name
+        properties: {
+          addressPrefix: subnets.privateEndpoints.prefix
+          networkSecurityGroup: { id: nsgPrivateEndpoints.id }
+          privateEndpointNetworkPolicies: 'Enabled'
+        }
+      }
+      {
+        // MIGRATION: Subnet renamed from snet-appgw to snet-agc.
+        // Added delegation to Microsoft.ServiceNetworking/trafficControllers
+        // which is REQUIRED for AGC association. Without this delegation,
+        // the AGC association will fail to deploy.
+        name: subnets.agc.name
+        properties: {
+          addressPrefix: subnets.agc.prefix
+          networkSecurityGroup: { id: nsgAgc.id }
+          delegations: [
+            {
+              name: 'agc-delegation'
+              properties: {
+                serviceName: 'Microsoft.ServiceNetworking/trafficControllers'
+              }
+            }
+          ]
+        }
+      }
+    ]
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Private DNS Zones
+// ---------------------------------------------------------------------------
+
+resource sqlPrivateDnsZone 'Microsoft.Network/privateDnsZones@2024-06-01' = {
+  name: 'privatelink${environment().suffixes.sqlServerHostname}'
+  location: 'global'
+  tags: tags
+}
+
+resource acrPrivateDnsZone 'Microsoft.Network/privateDnsZones@2024-06-01' = {
+  name: 'privatelink.azurecr.io'
+  location: 'global'
+  tags: tags
+}
+
+resource kvPrivateDnsZone 'Microsoft.Network/privateDnsZones@2024-06-01' = {
+  name: 'privatelink.vaultcore.azure.net'
+  location: 'global'
+  tags: tags
+}
+
+// Link DNS zones to VNet
+resource sqlDnsLink 'Microsoft.Network/privateDnsZones/virtualNetworkLinks@2024-06-01' = {
+  parent: sqlPrivateDnsZone
+  name: 'sql-vnet-link'
+  location: 'global'
+  properties: {
+    virtualNetwork: { id: vnet.id }
+    registrationEnabled: false
+  }
+}
+
+resource acrDnsLink 'Microsoft.Network/privateDnsZones/virtualNetworkLinks@2024-06-01' = {
+  parent: acrPrivateDnsZone
+  name: 'acr-vnet-link'
+  location: 'global'
+  properties: {
+    virtualNetwork: { id: vnet.id }
+    registrationEnabled: false
+  }
+}
+
+resource kvDnsLink 'Microsoft.Network/privateDnsZones/virtualNetworkLinks@2024-06-01' = {
+  parent: kvPrivateDnsZone
+  name: 'kv-vnet-link'
+  location: 'global'
+  properties: {
+    virtualNetwork: { id: vnet.id }
+    registrationEnabled: false
   }
 }
 
@@ -110,6 +326,12 @@ var networkTopology = {
 // Outputs
 // ---------------------------------------------------------------------------
 
-output networkTopology object = networkTopology
-output computeSubnet string = networkTopology.compute.subnet
-output externalSubnet string = networkTopology.external.subnet
+output vnetId string = vnet.id
+output vnetName string = vnet.name
+output aksSubnetId string = vnet.properties.subnets[0].id
+output sqlSubnetId string = vnet.properties.subnets[1].id
+output privateEndpointsSubnetId string = vnet.properties.subnets[2].id
+output agcSubnetId string = vnet.properties.subnets[3].id
+output sqlPrivateDnsZoneId string = sqlPrivateDnsZone.id
+output acrPrivateDnsZoneId string = acrPrivateDnsZone.id
+output kvPrivateDnsZoneId string = kvPrivateDnsZone.id

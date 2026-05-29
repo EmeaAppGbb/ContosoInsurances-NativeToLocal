@@ -202,15 +202,15 @@
         try
         {
             var client = HttpClientFactory.CreateClient("api");
-            var policiesTask = client.GetFromJsonAsync<List<Policy>>("/api/policies");
-            var claimsTask = client.GetFromJsonAsync<List<Claim>>("/api/claims");
-            var quotesTask = client.GetFromJsonAsync<List<Quote>>("/api/quotes");
+            var policiesTask = client.GetFromJsonAsync<PaginatedResponse<Policy>>("/api/policies");
+            var claimsTask = client.GetFromJsonAsync<PaginatedResponse<Claim>>("/api/claims");
+            var quotesTask = client.GetFromJsonAsync<PaginatedResponse<Quote>>("/api/quotes");
 
             await Task.WhenAll(policiesTask, claimsTask, quotesTask);
 
-            policies = policiesTask.Result ?? [];
-            claims = claimsTask.Result ?? [];
-            quotes = quotesTask.Result ?? [];
+            policies = (policiesTask.Result?.Items ?? []).ToList();
+            claims = (claimsTask.Result?.Items ?? []).ToList();
+            quotes = (quotesTask.Result?.Items ?? []).ToList();
         }
         catch (Exception ex)
         {

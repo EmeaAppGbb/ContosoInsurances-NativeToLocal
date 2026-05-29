@@ -1,36 +1,28 @@
 // ============================================================================
-// Application Gateway for Containers (AGC) — Connected Mode Ingress
+// Application Gateway for Containers (AGC) — Public-Facing Ingress
 // ============================================================================
 //
-// MIGRATION (April 2026): This module was previously a documentation-only
-// module describing NGINX Ingress + MetalLB as the on-prem ingress strategy.
+// MIGRATION: Replaced Application Gateway WAF v2 with Application Gateway
+// for Containers (AGC). Reasons:
+//   1. AGIC (Application Gateway Ingress Controller) was RETIRED March 2026.
+//   2. AGC is the GA successor (since Nov 2025) using Gateway API instead of
+//      the legacy Ingress API.
+//   3. AGC uses the ALB Controller (runs inside AKS as a managed addon) to
+//      manage configuration declaratively via Gateway + HTTPRoute K8s resources.
+//   4. AGC supports WAF policies, public + private frontends, and works with
+//      both AKS and Arc-enabled Kubernetes (connected mode).
 //
-// KEY INSIGHT: With AGC supporting Arc-enabled Kubernetes (connected mode),
-// we can now use AGC for BOTH cloud and on-prem deployments!
+// Resource type: Microsoft.ServiceNetworking/trafficControllers
+// Requires: A dedicated subnet delegated to Microsoft.ServiceNetworking/trafficControllers
+// K8s side: Gateway API CRDs + ALB Controller addon (see aks.bicep)
 //
-// WHAT CHANGED:
-//   NGINX Ingress Controller (RETIRED March 2026) → AGC
-//   MetalLB (no longer needed) → AGC provides the external endpoint
-//   ModSecurity WAF → AGC WAF capabilities
-//
-// HOW AGC WORKS IN CONNECTED MODE:
-//   1. The ALB Controller runs on the Arc-enabled K8s cluster (on-prem)
-//   2. AGC Traffic Controller runs in Azure cloud
-//   3. Traffic flow: Internet → AGC (Azure) → Arc tunnel → on-prem cluster
-//   4. The Arc connectivity agent maintains a secure outbound tunnel
-//   5. No inbound firewall rules needed on the Azure Local network!
-//
-// This is a MAJOR ADVANTAGE of connected mode over the previous NGINX/MetalLB
-// approach — you get Azure-managed L7 routing, WAF, and DDoS protection
-// without needing to expose on-prem IPs to the internet.
-//
-// DEPLOYMENT:
-//   1. Bicep deploys the AGC Traffic Controller, frontend, and association (this module)
-//   2. ALB Controller Arc extension syncs Gateway API resources (arc-kubernetes.bicep)
-//   3. K8s Gateway + HTTPRoute resources define routing (web-deployment.yaml)
+// KEY ARCHITECTURE CHANGE:
+//   Before: App Gateway WAF v2 → backend pool → AKS internal LoadBalancer
+//   After:  AGC Traffic Controller → ALB Controller in AKS → Gateway API routes
+//   Routing is now declarative in K8s manifests (Gateway + HTTPRoute), NOT in Bicep.
 // ============================================================================
 
-@description('Azure region for AGC (cloud resource)')
+@description('Azure region')
 param location string
 
 @description('Unique resource token for naming')
@@ -39,8 +31,8 @@ param resourceToken string
 @description('Resource tags')
 param tags object
 
-@description('VNet subnet ID for AGC association (in Azure cloud VNet if hybrid networking is configured)')
-param agcSubnetId string = ''
+@description('AGC dedicated subnet resource ID (must be delegated to Microsoft.ServiceNetworking/trafficControllers)')
+param agcSubnetId string
 
 // ---------------------------------------------------------------------------
 // Variables
@@ -51,13 +43,12 @@ var frontendName = 'agc-frontend-${resourceToken}'
 var associationName = 'agc-assoc-${resourceToken}'
 
 // ---------------------------------------------------------------------------
-// Traffic Controller — the AGC resource (deployed in Azure cloud)
+// Traffic Controller — the AGC resource
 // ---------------------------------------------------------------------------
-// In connected mode, AGC runs in Azure and routes traffic through the Arc
-// connectivity tunnel to the on-prem cluster. This is the same resource type
-// as the cloud deployment (main branch), but traffic path is different:
-//   Cloud: Internet → AGC → AKS VNet → pods
-//   Connected: Internet → AGC → Arc tunnel → on-prem pods
+// MIGRATION: This replaces the Microsoft.Network/applicationGateways resource.
+// The Traffic Controller is the control plane for AGC. It manages frontends
+// (public/private IPs) and associations (subnet links). Routing rules are
+// defined in K8s via Gateway API resources (Gateway + HTTPRoute), NOT in Bicep.
 // ---------------------------------------------------------------------------
 
 resource trafficController 'Microsoft.ServiceNetworking/trafficControllers@2025-01-01' = {
@@ -70,6 +61,10 @@ resource trafficController 'Microsoft.ServiceNetworking/trafficControllers@2025-
 // ---------------------------------------------------------------------------
 // AGC Frontend — public-facing endpoint
 // ---------------------------------------------------------------------------
+// MIGRATION: Replaces the Application Gateway public IP + frontend config.
+// AGC manages its own FQDN; you don't create a separate public IP resource.
+// The frontend FQDN is auto-generated and used for DNS CNAME records.
+// ---------------------------------------------------------------------------
 
 resource frontend 'Microsoft.ServiceNetworking/trafficControllers/frontends@2025-01-01' = {
   parent: trafficController
@@ -79,14 +74,14 @@ resource frontend 'Microsoft.ServiceNetworking/trafficControllers/frontends@2025
 }
 
 // ---------------------------------------------------------------------------
-// AGC Association — links AGC to a subnet (optional for connected mode)
+// AGC Association — links AGC to the VNet subnet
 // ---------------------------------------------------------------------------
-// NOTE: In connected mode, the association may reference a cloud VNet subnet
-// if hybrid networking (VPN/ExpressRoute) is configured, or it can be omitted
-// if traffic flows entirely through the Arc tunnel.
+// MIGRATION: Replaces the Application Gateway gatewayIPConfigurations subnet
+// reference. The association tells AGC which subnet to use for data-plane
+// traffic. The subnet MUST be delegated to Microsoft.ServiceNetworking/trafficControllers.
 // ---------------------------------------------------------------------------
 
-resource association 'Microsoft.ServiceNetworking/trafficControllers/associations@2025-01-01' = if (!empty(agcSubnetId)) {
+resource association 'Microsoft.ServiceNetworking/trafficControllers/associations@2025-01-01' = {
   parent: trafficController
   name: associationName
   location: location
@@ -99,7 +94,7 @@ resource association 'Microsoft.ServiceNetworking/trafficControllers/association
 }
 
 // ---------------------------------------------------------------------------
-// Resource Lock
+// Resource Lock (production protection)
 // ---------------------------------------------------------------------------
 
 resource agcLock 'Microsoft.Authorization/locks@2020-05-01' = {
@@ -107,7 +102,7 @@ resource agcLock 'Microsoft.Authorization/locks@2020-05-01' = {
   scope: trafficController
   properties: {
     level: 'CanNotDelete'
-    notes: 'AGC Traffic Controller is the sole ingress point for connected mode. Do not delete.'
+    notes: 'AGC Traffic Controller is the sole ingress point. Do not delete.'
   }
 }
 

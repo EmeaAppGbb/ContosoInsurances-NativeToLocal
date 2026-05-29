@@ -15,13 +15,14 @@ param resourceToken string
 @description('Resource tags')
 param tags object
 
-@secure()
-@description('SQL administrator login')
-param adminLogin string
+@description('Object ID of the Entra ID admin (deploying user/service principal)')
+param entraAdminObjectId string
 
-@secure()
-@description('SQL administrator password')
-param adminPassword string
+@description('Display name for the Entra ID admin')
+param entraAdminDisplayName string = 'AZD Deployer'
+
+@description('Client ID of the managed identity used by pods to authenticate (included in connection string)')
+param podIdentityClientId string = ''
 
 @description('VNet resource ID')
 param vnetId string
@@ -43,17 +44,27 @@ var databaseName = 'ContosoInsurance'
 // ---------------------------------------------------------------------------
 // SQL Server (logical)
 // ---------------------------------------------------------------------------
+// Entra-only authentication (required by org policy). The Entra admin is the
+// AKS kubelet identity so pods can connect using managed identity without
+// additional SQL user provisioning.
+// ---------------------------------------------------------------------------
 
-resource sqlServer 'Microsoft.Sql/servers@2023-08-01-preview' = {
+resource sqlServer 'Microsoft.Sql/servers@2024-05-01-preview' = {
   name: serverName
   location: location
   tags: tags
   properties: {
-    administratorLogin: adminLogin
-    administratorLoginPassword: adminPassword
     version: '12.0'
     minimalTlsVersion: '1.2'
     publicNetworkAccess: 'Disabled'
+    administrators: {
+      administratorType: 'ActiveDirectory'
+      principalType: 'Application'
+      login: entraAdminDisplayName
+      sid: entraAdminObjectId
+      tenantId: tenant().tenantId
+      azureADOnlyAuthentication: true
+    }
   }
 }
 
@@ -128,4 +139,4 @@ output serverId string = sqlServer.id
 output serverName string = sqlServer.name
 output serverFqdn string = sqlServer.properties.fullyQualifiedDomainName
 output databaseName string = sqlDatabase.name
-output connectionString string = 'Server=tcp:${sqlServer.properties.fullyQualifiedDomainName},1433;Database=${databaseName};Encrypt=true;TrustServerCertificate=false;Connection Timeout=30;'
+output connectionString string = 'Server=tcp:${sqlServer.properties.fullyQualifiedDomainName},1433;Database=${databaseName};Authentication=Active Directory Managed Identity;User Id=${podIdentityClientId};Encrypt=true;TrustServerCertificate=false;Connection Timeout=30;'

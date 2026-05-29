@@ -1,33 +1,7 @@
 // ============================================================================
-// Key Vault Module — Azure Key Vault (Azure Local Connected Mode)
-// ============================================================================
-//
-// MIGRATION NOTE (from main branch):
-// Key Vault STAYS in Azure cloud — it's reachable from Azure Local in
-// connected mode over the internet/ExpressRoute. Key changes:
-//
-// 1. PRIVATE ENDPOINT REMOVED — The on-premises cluster isn't in an Azure
-//    VNet, so private endpoints don't apply.
-//
-// 2. PUBLIC ACCESS ENABLED — The Arc Key Vault Secrets Provider extension
-//    on the on-premises cluster needs to reach Key Vault's public endpoint.
-//    Access is controlled by RBAC (not network rules).
-//
-// 3. AKS KUBELET IDENTITY REMOVED — AKS had a system-assigned managed
-//    identity that was granted Key Vault Secrets User role. In Arc-enabled
-//    K8s, secrets are synced by the Key Vault Secrets Provider extension,
-//    which uses workload identity or a service principal configured during
-//    extension setup.
-//
-// 4. RBAC SIMPLIFIED — Only the deploying user gets admin access initially.
-//    The Arc extension's identity is configured outside of Bicep (during
-//    extension installation on the cluster).
-//
-// WHAT STAYED THE SAME:
-//   - Same Key Vault resource, same secrets (SQL connection string, RabbitMQ)
-//   - Same RBAC-based access model (no access policies)
-//   - Soft delete and purge protection still enabled
-//   - Resource lock still in place
+// Key Vault Module — Azure Key Vault for Secrets Management
+// Stores SQL connection string, RabbitMQ credentials, and other secrets.
+// Private endpoint ensures no public access. RBAC-based access control.
 // ============================================================================
 
 @description('Azure region')
@@ -42,6 +16,18 @@ param tags object
 @description('Principal ID of deploying user (for initial access)')
 param principalId string
 
+@description('AKS kubelet managed identity object ID')
+param aksKubeletIdentityObjectId string
+
+@description('VNet resource ID')
+param vnetId string
+
+@description('Private endpoints subnet resource ID')
+param privateEndpointsSubnetId string
+
+@description('Key Vault private DNS zone resource ID')
+param kvPrivateDnsZoneId string
+
 @secure()
 @description('SQL connection string to store in Key Vault')
 param sqlConnectionString string
@@ -54,6 +40,7 @@ var abbrs = loadJsonContent('../abbreviations.json')
 var vaultName = '${abbrs.keyVault}${resourceToken}'
 
 // Built-in role IDs
+var keyVaultSecretsUserRoleId = subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '4633458b-17de-408a-b874-0445c86b69e6')
 var keyVaultAdminRoleId = subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '00482a5a-887f-4fb3-b363-3b7fe8e74483')
 
 // ---------------------------------------------------------------------------
@@ -74,9 +61,6 @@ resource keyVault 'Microsoft.KeyVault/vaults@2023-07-01' = {
     enableSoftDelete: true
     softDeleteRetentionInDays: 7
     enablePurgeProtection: true
-    // CHANGE: Public access enabled (was Disabled with private endpoint)
-    // The Arc Key Vault Secrets Provider extension needs to reach KV
-    // over the public endpoint from the on-premises cluster.
     publicNetworkAccess: 'Enabled'
     networkAcls: {
       defaultAction: 'Allow'
@@ -100,12 +84,16 @@ resource deployerAdminRole 'Microsoft.Authorization/roleAssignments@2022-04-01' 
   }
 }
 
-// REMOVED: AKS kubelet identity role assignment
-// In Arc-enabled K8s, the Key Vault Secrets Provider extension uses its own
-// identity configured during extension setup. You can grant it access via:
-//   az role assignment create --role "Key Vault Secrets User" \
-//     --assignee <extension-identity-object-id> \
-//     --scope <key-vault-id>
+// AKS kubelet identity gets secrets reader
+resource aksSecretsRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(keyVault.id, aksKubeletIdentityObjectId, keyVaultSecretsUserRoleId)
+  scope: keyVault
+  properties: {
+    roleDefinitionId: keyVaultSecretsUserRoleId
+    principalId: aksKubeletIdentityObjectId
+    principalType: 'ServicePrincipal'
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Secrets
@@ -128,12 +116,43 @@ resource rabbitmqPasswordSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' =
 }
 
 // ---------------------------------------------------------------------------
-// REMOVED: Private Endpoint
+// Private Endpoint
 // ---------------------------------------------------------------------------
-// The cloud deployment had a private endpoint here. It's removed because
-// the on-premises cluster accesses Key Vault over the public endpoint.
-// See the MIGRATION NOTE at the top of this file.
-// ---------------------------------------------------------------------------
+
+resource kvPrivateEndpoint 'Microsoft.Network/privateEndpoints@2024-01-01' = {
+  name: '${abbrs.privateEndpoint}kv-${resourceToken}'
+  location: location
+  tags: tags
+  properties: {
+    subnet: {
+      id: privateEndpointsSubnetId
+    }
+    privateLinkServiceConnections: [
+      {
+        name: 'kv-connection'
+        properties: {
+          privateLinkServiceId: keyVault.id
+          groupIds: ['vault']
+        }
+      }
+    ]
+  }
+}
+
+resource kvDnsGroup 'Microsoft.Network/privateEndpoints/privateDnsZoneGroups@2024-01-01' = {
+  parent: kvPrivateEndpoint
+  name: 'kv-dns-group'
+  properties: {
+    privateDnsZoneConfigs: [
+      {
+        name: 'kv-dns-config'
+        properties: {
+          privateDnsZoneId: kvPrivateDnsZoneId
+        }
+      }
+    ]
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Resource Lock (production protection)

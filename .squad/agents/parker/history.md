@@ -76,3 +76,25 @@
 - Deleted k8s/ingress-nginx.yaml and k8s/metallb-config.yaml (retired components)
 - Network policies updated: ingress-nginx namespace → azure-alb-system namespace
 - Gateway API CRDs must be installed separately (v1.2.1 standard-install.yaml)
+### Entra ID-Only SQL Auth (2026-04-30)
+- MCAPS subscription policies deny Azure SQL with SQL auth; must use Entra ID-only
+- `azureADOnlyAuthentication: true` in the `administrators` block removes all SQL auth
+- Connection string uses `Authentication=Active Directory Default` which works with `DefaultAzureCredential` (.NET)
+- AKS kubelet managed identity can authenticate to SQL via Entra ID — no passwords in Key Vault
+- API version `2024-05-01-preview` supports inline `administrators` block on server creation
+
+### Full Deployment Success (2026-04-30T13-10Z)
+- **AKS Control Plane Poisoning:** Prior iterative `azd` deployments accumulated failed resources that degraded AKS control plane state. Solution: Create fresh AZD environment (`azd env new contoso-ins`) instead of retrying in poisoned environment.
+- **omsagent Addon Incompatibility:** Azure's omsagent addon fails preflight checks on AKS v1.29+ with stable API versions. Switched to simplified `azurepolicy`-only addon config; if Azure Monitor needed post-deployment, deploy as separate container agent pod.
+- **AKS API Version:** Bumped from 2024-09-01 to 2025-01-01 (stable + well-supported). containerInsights not in stable API; removed from azureMonitorProfile.
+- **Environment:** contoso-ins, subscription madasi-general-demo, North Europe. All 6 resource types deployed successfully (AKS, SQL, ACR, KV, App Gateway, VNet + private endpoints).
+- **Deployment Time:** 16 minutes end-to-end. Infrastructure ready for application workload deployment.
+
+### AZD Hooks Migration (2026-07-15)
+- Removed Aspire AppHost service from `azure.yaml` — AZD's Aspire integration only supports Container Apps, not AKS
+- Replaced with hook-based deploy: `postprovision` (AKS access + CRDs) and `deploy` (build + push + apply manifests)
+- Created `scripts/postprovision.ps1` and `scripts/deploy.ps1` (idempotent, pwsh)
+- Created multi-stage Dockerfiles for Api, Web, Worker using `mcr.microsoft.com/dotnet/nightly/sdk:10.0` and `aspnet:10.0`
+- K8s manifest substitution done in temp dir (`.k8s-deploy/`), never writes secrets to source files
+- RabbitMQ password generated deterministically from resource group name (consistent across redeploys)
+- SQL connection string fetched from Key Vault at deploy time (Entra ID auth, no SQL passwords)

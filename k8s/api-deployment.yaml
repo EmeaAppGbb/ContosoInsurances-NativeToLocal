@@ -62,22 +62,24 @@ spec:
               memory: "1Gi"
           livenessProbe:
             httpGet:
-              path: /healthz
+              path: /alive
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            timeoutSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
               port: 8080
             initialDelaySeconds: 10
             periodSeconds: 15
-          readinessProbe:
-            httpGet:
-              path: /healthz
-              port: 8080
-            initialDelaySeconds: 5
-            periodSeconds: 10
+            timeoutSeconds: 10
 ---
 # ClusterIP — internal only, no external access (unchanged)
 apiVersion: v1
 kind: Service
 metadata:
-  name: api-service
+  name: api
   namespace: contoso-insurance
 spec:
   type: ClusterIP

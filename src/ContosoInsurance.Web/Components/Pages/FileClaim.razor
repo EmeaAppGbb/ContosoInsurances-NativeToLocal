@@ -194,7 +194,8 @@
         try
         {
             var client = HttpClientFactory.CreateClient("api");
-            policies = await client.GetFromJsonAsync<List<Policy>>("/api/policies") ?? [];
+            var response = await client.GetFromJsonAsync<PaginatedResponse<Policy>>("/api/policies");
+            policies = (response?.Items ?? []).ToList();
         }
         catch (Exception ex)
         {

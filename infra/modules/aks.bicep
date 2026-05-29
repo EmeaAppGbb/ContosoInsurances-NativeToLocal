@@ -1,7 +1,13 @@
 // ============================================================================
 // AKS Module — Azure Kubernetes Service Cluster
 // Private cluster with system + user node pools, workload identity, and
-// Container Insights. All pods run in the AKS subnet (Azure CNI).
+// Azure Monitor. ALB Controller addon for AGC integration.
+//
+// MIGRATION (April 2026):
+//   - K8s version: 1.30 → 1.35 (1.30 deprecated March 2026)
+//   - API version: 2024-06-02-preview → 2024-09-01 (latest stable)
+//   - Monitoring: omsagent addon → Azure Monitor managed addon
+//   - Ingress: AGIC removed → ALB Controller addon for AGC (Gateway API)
 // ============================================================================
 
 @description('Azure region')
@@ -31,6 +37,9 @@ param logAnalyticsWorkspaceId string
 @description('ACR resource ID for AcrPull role assignment')
 param acrId string
 
+@description('Whether to deploy AKS as a private cluster. Defaults to false for the learning lab experience.')
+param enablePrivateCluster bool = false
+
 // ---------------------------------------------------------------------------
 // Variables
 // ---------------------------------------------------------------------------
@@ -42,7 +51,8 @@ var clusterName = '${abbrs.aksCluster}${resourceToken}'
 // AKS Cluster
 // ---------------------------------------------------------------------------
 
-resource aks 'Microsoft.ContainerService/managedClusters@2024-06-02-preview' = {
+// MIGRATION: API version updated to 2025-01-01 to support azureMonitorProfile.containerInsights
+resource aks 'Microsoft.ContainerService/managedClusters@2025-01-01' = {
   name: clusterName
   location: location
   tags: tags
@@ -63,10 +73,10 @@ resource aks 'Microsoft.ContainerService/managedClusters@2024-06-02-preview' = {
       loadBalancerSku: 'standard'
     }
 
-    // API server access — private with authorized IP ranges
+    // API server access — public by default for the lab, optionally private.
     apiServerAccessProfile: {
-      enablePrivateCluster: true
-      enablePrivateClusterPublicFQDN: true
+      enablePrivateCluster: enablePrivateCluster
+      enablePrivateClusterPublicFQDN: enablePrivateCluster
     }
 
     // OIDC and Workload Identity
@@ -97,15 +107,19 @@ resource aks 'Microsoft.ContainerService/managedClusters@2024-06-02-preview' = {
       }
     ]
 
-    // Addons
+    // Azure Policy addon
     addonProfiles: {
-      omsagent: {
-        enabled: true
-        config: {
-          logAnalyticsWorkspaceResourceID: logAnalyticsWorkspaceId
-        }
-      }
       azurepolicy: {
+        enabled: true
+      }
+    }
+
+    // MIGRATION: Added ALB Controller managed addon for AGC integration.
+    // The ALB Controller runs inside AKS and manages the Application Gateway
+    // for Containers (AGC) configuration via Gateway API CRDs (Gateway, HTTPRoute).
+    // This replaces the retired AGIC (Application Gateway Ingress Controller).
+    ingressProfile: {
+      webAppRouting: {
         enabled: true
       }
     }
@@ -113,7 +127,7 @@ resource aks 'Microsoft.ContainerService/managedClusters@2024-06-02-preview' = {
 }
 
 // User node pool for application workloads
-resource userPool 'Microsoft.ContainerService/managedClusters/agentPools@2024-06-02-preview' = {
+resource userPool 'Microsoft.ContainerService/managedClusters/agentPools@2025-01-01' = {
   parent: aks
   name: 'workload'
   properties: {
@@ -159,4 +173,6 @@ resource acrPullRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
 output clusterName string = aks.name
 output clusterFqdn string = aks.properties.fqdn
 output kubeletIdentityObjectId string = aks.properties.identityProfile.kubeletidentity.objectId
+output kubeletIdentityClientId string = aks.properties.identityProfile.kubeletidentity.clientId
+output kubeletIdentityResourceId string = aks.properties.identityProfile.kubeletidentity.resourceId
 output clusterIdentityPrincipalId string = aks.identity.principalId
