@@ -22,7 +22,7 @@ metadata:
     app: webfrontend
     app.kubernetes.io/part-of: contoso-insurance
 spec:
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
       app: webfrontend
@@ -41,6 +41,10 @@ spec:
           env:
             - name: ASPNETCORE_URLS
               value: "http://+:8080"
+            - name: ASPNETCORE_FORWARDEDHEADERS_ENABLED
+              value: "true"
+            - name: ASPNETCORE_ENVIRONMENT
+              value: "Production"
             - name: ApiBaseUrl
               value: "http://api:8080"
             - name: APPLICATIONINSIGHTS_CONNECTION_STRING
