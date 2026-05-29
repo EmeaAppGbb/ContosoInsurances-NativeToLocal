@@ -167,10 +167,15 @@ if ([string]::IsNullOrWhiteSpace($rabbitmqPassword)) {
 }
 
 try {
-    Write-Step 'Logging into ACR'
-    Invoke-ExternalCommand -FailureMessage "Failed to login to ACR '$acrName'." -ScriptBlock {
-        az acr login --name $acrName
+    Write-Step 'Logging into ACR (token-based, no Docker required)'
+    $acrTokenJson = & az acr login --name $acrName --expose-token --output json 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        throw "Failed to get ACR access token for '$acrName'."
     }
+    $acrToken = $acrTokenJson | ConvertFrom-Json
+    # Set environment variables for .NET SDK container publish to authenticate with ACR
+    $env:SDK_CONTAINER_REGISTRY_UNAME = '00000000-0000-0000-0000-000000000000'
+    $env:SDK_CONTAINER_REGISTRY_PWORD = $acrToken.accessToken
 
     Write-Step 'Publishing container images'
     Publish-ContainerImage -ProjectPath (Join-Path $repoRoot 'src\ContosoInsurance.Api\ContosoInsurance.Api.csproj') -Repository 'contoso-insurance/api' -Tag $tag -Registry $acrLoginServer

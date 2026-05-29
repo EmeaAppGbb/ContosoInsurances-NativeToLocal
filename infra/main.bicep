@@ -138,8 +138,9 @@ module sql 'modules/sql.bicep' = {
     location: location
     resourceToken: resourceToken
     tags: tags
-    entraAdminObjectId: principalId
-    entraAdminDisplayName: sqlEntraAdminDisplayName
+    entraAdminObjectId: aks.outputs.kubeletIdentityObjectId
+    entraAdminDisplayName: 'aks-${resourceToken}-kubelet'
+    podIdentityClientId: aks.outputs.kubeletIdentityClientId
     vnetId: networking.outputs.vnetId
     privateEndpointsSubnetId: networking.outputs.privateEndpointsSubnetId
     sqlPrivateDnsZoneId: networking.outputs.sqlPrivateDnsZoneId

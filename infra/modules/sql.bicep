@@ -21,6 +21,9 @@ param entraAdminObjectId string
 @description('Display name for the Entra ID admin')
 param entraAdminDisplayName string = 'AZD Deployer'
 
+@description('Client ID of the managed identity used by pods to authenticate (included in connection string)')
+param podIdentityClientId string = ''
+
 @description('VNet resource ID')
 param vnetId string
 
@@ -41,6 +44,10 @@ var databaseName = 'ContosoInsurance'
 // ---------------------------------------------------------------------------
 // SQL Server (logical)
 // ---------------------------------------------------------------------------
+// Entra-only authentication (required by org policy). The Entra admin is the
+// AKS kubelet identity so pods can connect using managed identity without
+// additional SQL user provisioning.
+// ---------------------------------------------------------------------------
 
 resource sqlServer 'Microsoft.Sql/servers@2024-05-01-preview' = {
   name: serverName
@@ -52,7 +59,7 @@ resource sqlServer 'Microsoft.Sql/servers@2024-05-01-preview' = {
     publicNetworkAccess: 'Disabled'
     administrators: {
       administratorType: 'ActiveDirectory'
-      principalType: 'User'
+      principalType: 'Application'
       login: entraAdminDisplayName
       sid: entraAdminObjectId
       tenantId: tenant().tenantId
@@ -132,4 +139,4 @@ output serverId string = sqlServer.id
 output serverName string = sqlServer.name
 output serverFqdn string = sqlServer.properties.fullyQualifiedDomainName
 output databaseName string = sqlDatabase.name
-output connectionString string = 'Server=tcp:${sqlServer.properties.fullyQualifiedDomainName},1433;Database=${databaseName};Authentication=Active Directory Managed Identity;Encrypt=true;TrustServerCertificate=false;Connection Timeout=30;'
+output connectionString string = 'Server=tcp:${sqlServer.properties.fullyQualifiedDomainName},1433;Database=${databaseName};Authentication=Active Directory Managed Identity;User Id=${podIdentityClientId};Encrypt=true;TrustServerCertificate=false;Connection Timeout=30;'
