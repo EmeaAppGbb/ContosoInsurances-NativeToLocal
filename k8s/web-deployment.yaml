@@ -1,19 +1,16 @@
+# Web Frontend — the ONLY internet-accessible service
 # ============================================================================
-# Web Frontend - the ONLY internet-accessible service (Azure Local Connected)
-# ============================================================================
-#
 # MIGRATION (April 2026):
-#   - Removed NGINX Ingress resource (NGINX Ingress Controller RETIRED March 2026)
-#   - Added Gateway API resources (Gateway + HTTPRoute) for AGC integration
-#   - Service remains ClusterIP - AGC routes traffic via Arc tunnel
-#   - imagePullSecrets still needed for ACR auth on Arc-enabled K8s
+#   - Removed internal LoadBalancer service (was used with App Gateway WAF v2)
+#   - Added ClusterIP service (AGC routes directly to pods via ALB Controller)
+#   - Added Gateway API resources (Gateway + HTTPRoute) replacing Ingress API
+#   - App Gateway WAF v2 + AGIC retired March 2026 → AGC + Gateway API
 #
-# HOW IT WORKS IN CONNECTED MODE:
-#   Internet -> AGC (Azure cloud) -> Arc connectivity tunnel -> on-prem pods
-#   The ALB Controller extension on the Arc cluster watches Gateway/HTTPRoute
-#   resources and configures AGC automatically. No MetalLB or NGINX needed!
+# HOW IT WORKS NOW:
+#   Internet → AGC (Azure) → ALB Controller (in AKS) → webfrontend pods
+#   Routing is defined here in K8s manifests, NOT in Bicep appgateway module.
 #
-# PREREQUISITE: Gateway API CRDs must be installed on the Arc-enabled cluster:
+# PREREQUISITE: Gateway API CRDs must be installed:
 #   kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.2.1/standard-install.yaml
 # ============================================================================
 apiVersion: apps/v1
@@ -25,7 +22,7 @@ metadata:
     app: webfrontend
     app.kubernetes.io/part-of: contoso-insurance
 spec:
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
       app: webfrontend
@@ -34,9 +31,8 @@ spec:
       labels:
         app: webfrontend
     spec:
-      # ACR imagePullSecrets needed on Arc-enabled K8s (no AKS managed identity)
-      imagePullSecrets:
-        - name: acr-pull-secret
+      nodeSelector:
+        workload: contoso-insurance
       containers:
         - name: webfrontend
           image: __ACR_LOGIN_SERVER__/contoso-insurance/webfrontend:__TAG__
@@ -45,8 +41,12 @@ spec:
           env:
             - name: ASPNETCORE_URLS
               value: "http://+:8080"
-            - name: services__api__http__0
-              value: "http://api-service.contoso-insurance.svc.cluster.local:8080"
+            - name: ASPNETCORE_FORWARDEDHEADERS_ENABLED
+              value: "true"
+            - name: ASPNETCORE_ENVIRONMENT
+              value: "Production"
+            - name: ApiBaseUrl
+              value: "http://api:8080"
             - name: APPLICATIONINSIGHTS_CONNECTION_STRING
               valueFrom:
                 configMapKeyRef:
@@ -61,18 +61,22 @@ spec:
               memory: "512Mi"
           livenessProbe:
             httpGet:
-              path: /healthz
+              path: /alive
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            timeoutSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
               port: 8080
             initialDelaySeconds: 10
             periodSeconds: 15
-          readinessProbe:
-            httpGet:
-              path: /healthz
-              port: 8080
-            initialDelaySeconds: 5
-            periodSeconds: 10
+            timeoutSeconds: 10
 ---
-# ClusterIP service - AGC routes traffic directly to pods via ALB Controller
+# MIGRATION: Changed from LoadBalancer (internal) to ClusterIP.
+# With AGC + Gateway API, the ALB Controller manages traffic routing.
+# No need for an internal LoadBalancer — AGC connects directly to the service.
 apiVersion: v1
 kind: Service
 metadata:
@@ -88,16 +92,19 @@ spec:
       protocol: TCP
 ---
 # ============================================================================
-# Gateway API Resources - replace retired NGINX Ingress (March 2026)
+# Gateway API Resources — replace legacy Ingress API
 # ============================================================================
-# MIGRATION: These Gateway API resources replace the NGINX Ingress resource
-# that was previously defined here. The ALB Controller extension on the
-# Arc-enabled cluster watches these resources and configures AGC.
+# MIGRATION: These Gateway API resources replace the App Gateway backend pool
+# and routing rules that were previously defined in appgateway.bicep.
 #
-# KEY ADVANTAGE OF CONNECTED MODE:
-# AGC provides Azure-managed L7 routing, WAF, and DDoS protection for on-prem
-# workloads WITHOUT exposing any on-prem IPs to the internet. Traffic flows
-# through the secure Arc connectivity tunnel (outbound-only from on-prem).
+# The ALB Controller addon (installed in AKS via aks.bicep) watches these
+# resources and configures AGC accordingly.
+#
+# Gateway API advantages over legacy Ingress:
+#   - Role-oriented: cluster operators manage Gateway, app devs manage HTTPRoute
+#   - Expressive: header-based routing, traffic splitting, URL rewriting
+#   - Extensible: vendor-specific features via policy attachments
+#   - Portable: works across multiple implementations (AGC, Istio, etc.)
 # ============================================================================
 apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
@@ -105,13 +112,13 @@ metadata:
   name: contoso-gateway
   namespace: contoso-insurance
   annotations:
-    # Links the Gateway to the AGC Traffic Controller deployed by Bicep.
-    # Replace __AGC_RESOURCE_ID__ with actual AGC resource ID from Bicep output.
-    # CI/CD pipeline handles this substitution.
+    # This annotation links the Gateway to the AGC Traffic Controller deployed by Bicep.
+    # Replace __AGC_RESOURCE_ID__ with the actual AGC resource ID from Bicep output
+    # (AZURE_AGC_RESOURCE_ID). CI/CD pipeline handles this substitution.
     alb.networking.azure.io/alb-id: __AGC_RESOURCE_ID__
 spec:
   # MIGRATION: gatewayClassName 'azure-alb-external' is the AGC class for
-  # public-facing frontends. Works with both AKS and Arc-enabled K8s.
+  # public-facing frontends. Use 'azure-alb-internal' for private frontends.
   gatewayClassName: azure-alb-external
   listeners:
     - name: http
