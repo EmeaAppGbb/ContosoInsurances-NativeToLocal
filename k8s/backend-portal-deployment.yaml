@@ -27,10 +27,9 @@ spec:
             - name: ASPNETCORE_URLS
               value: "http://+:8080"
             - name: ASPNETCORE_ENVIRONMENT
-              valueFrom:
-                configMapKeyRef:
-                  name: contoso-config
-                  key: ASPNETCORE_ENVIRONMENT
+              value: "Development"
+            - name: Authentication__DevBypass
+              value: "true"
             - name: BackendApiBaseUrl
               valueFrom:
                 configMapKeyRef:

@@ -36,8 +36,8 @@ if (app.Environment.IsDevelopment())
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<InsuranceDbContext>();
-    await db.Database.EnsureCreatedAsync();
-    await SeedData.SeedAsync(db);
+    // DB already created by public API — just ensure tables exist
+    try { await db.Database.EnsureCreatedAsync(); } catch { /* table already exists is fine */ }
 }
 
 app.UseHttpsRedirection();

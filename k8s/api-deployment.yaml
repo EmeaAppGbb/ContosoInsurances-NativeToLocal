@@ -83,14 +83,15 @@ spec:
             httpGet:
               path: /alive
               port: 8080
-            initialDelaySeconds: 15
+            initialDelaySeconds: 60
             periodSeconds: 20
             timeoutSeconds: 10
+            failureThreshold: 5
           readinessProbe:
             httpGet:
               path: /health
               port: 8080
-            initialDelaySeconds: 10
+            initialDelaySeconds: 45
             periodSeconds: 15
             timeoutSeconds: 10
 ---

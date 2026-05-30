@@ -33,12 +33,14 @@ function Get-CommandOutput {
         [string]$FailureMessage
     )
 
-    $output = & $ScriptBlock 2>&1
+    $output = & $ScriptBlock 2>$null
     if ($LASTEXITCODE -ne 0) {
-        throw "$FailureMessage`n$($output | Out-String)"
+        throw $FailureMessage
     }
 
-    return ($output | Out-String).Trim()
+    # Filter out any WARNING lines from Azure CLI extensions
+    $lines = ($output | Out-String).Trim() -split "`n" | Where-Object { $_ -notmatch '^WARNING:' }
+    return ($lines -join "`n").Trim()
 }
 
 function Import-AzdEnvironment {
