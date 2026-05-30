@@ -1,0 +1,155 @@
+@page "/portal/claims/{Id:guid}"
+@attribute [Authorize]
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject IPortalOperationsService PortalService
+
+<PageTitle>Claim Detail</PageTitle>
+
+@if (claimCase is null)
+{
+    <div class="ci-empty-state">
+        <h2>Claim not found</h2>
+        <p>The requested claim is unavailable or has already been archived.</p>
+        <a class="btn-ci btn-primary-ci" href="/portal/claims">Back to claims</a>
+    </div>
+}
+else
+{
+    <section class="ci-page-header">
+        <div>
+            <p class="ci-kicker">Claim detail</p>
+            <h2>@claimCase.Claim.ClaimNumber</h2>
+            <p class="ci-muted">@claimCase.Customer.FirstName @claimCase.Customer.LastName • @claimCase.Policy.PolicyNumber • @FormatEnum(claimCase.Claim.Status)</p>
+        </div>
+        <div class="ci-button-row wrap">
+            @foreach (var status in GetAvailableClaimTransitions(claimCase.Claim.Status))
+            {
+                <button type="button" class="btn-ci btn-primary-ci btn-sm-ci" @onclick="() => MoveClaimAsync(status)">@FormatEnum(status)</button>
+            }
+            <a class="btn-ci btn-secondary-ci btn-sm-ci" href="/portal/claims">Back to claims</a>
+        </div>
+    </section>
+
+    <section class="ci-summary-grid">
+        <div><span>Claim amount</span><strong>@claimCase.Claim.Amount.ToString("C")</strong></div>
+        <div><span>Incident date</span><strong>@claimCase.Claim.IncidentDate.ToString("MMM dd, yyyy")</strong></div>
+        <div><span>Filed date</span><strong>@claimCase.Claim.FiledDate.ToString("MMM dd, yyyy")</strong></div>
+        <div><span>Assignee</span><strong>@claimCase.Assignee</strong></div>
+    </section>
+
+    <section class="ci-two-column-grid">
+        <article class="ci-panel">
+            <div class="ci-panel-header"><div><h3>Claim information</h3><p>Loss summary and customer-facing details.</p></div></div>
+            <dl class="ci-detail-grid">
+                <div><dt>Description</dt><dd>@claimCase.Claim.Description</dd></div>
+                <div><dt>Severity</dt><dd>@claimCase.Severity</dd></div>
+                <div><dt>Queue</dt><dd>@claimCase.QueueName</dd></div>
+                <div><dt>Resolution date</dt><dd>@(claimCase.Claim.ResolvedDate?.ToString("MMM dd, yyyy") ?? "Open")</dd></div>
+            </dl>
+        </article>
+
+        <article class="ci-panel">
+            <div class="ci-panel-header"><div><h3>Policy and customer</h3><p>Coverage and insured contact information.</p></div></div>
+            <dl class="ci-detail-grid">
+                <div><dt>Policy number</dt><dd>@claimCase.Policy.PolicyNumber</dd></div>
+                <div><dt>Policy type</dt><dd>@claimCase.Policy.Type</dd></div>
+                <div><dt>Coverage amount</dt><dd>@claimCase.Policy.CoverageAmount.ToString("C")</dd></div>
+                <div><dt>Status</dt><dd>@claimCase.Policy.Status</dd></div>
+                <div><dt>Customer</dt><dd>@claimCase.Customer.FirstName @claimCase.Customer.LastName</dd></div>
+                <div><dt>Email</dt><dd>@claimCase.Customer.Email</dd></div>
+                <div><dt>Phone</dt><dd>@claimCase.Customer.Phone</dd></div>
+                <div><dt>Address</dt><dd>@claimCase.Customer.Address</dd></div>
+            </dl>
+        </article>
+    </section>
+
+    <section class="ci-two-column-grid">
+        <article class="ci-panel">
+            <div class="ci-panel-header"><div><h3>Workflow timeline</h3><p>Current path through triage, approval, payment, and closure.</p></div></div>
+            <WorkflowTimeline Items="claimCase.Timeline" />
+        </article>
+
+        <article class="ci-panel">
+            <div class="ci-panel-header"><div><h3>Notes</h3><p>Internal collaboration for adjusters and finance.</p></div></div>
+            <textarea @bind="newNote" rows="4" placeholder="Add an internal operations note"></textarea>
+            <button type="button" class="btn-ci btn-secondary-ci btn-sm-ci" @onclick="AddNoteAsync">Add note</button>
+            <div class="ci-notes-list">
+                @foreach (var note in claimCase.Notes.OrderByDescending(note => note.CreatedAtUtc))
+                {
+                    <article class="ci-note-card">
+                        <strong>@note.Author</strong>
+                        <span>@note.CreatedAtUtc.ToLocalTime().ToString("MMM dd, h:mm tt")</span>
+                        <p>@note.Body</p>
+                    </article>
+                }
+            </div>
+        </article>
+    </section>
+
+    <section class="ci-panel">
+        <div class="ci-panel-header"><div><h3>Audit trail</h3><p>Immutable record of workflow actions.</p></div></div>
+        <div class="ci-audit-list">
+            @foreach (var entry in claimCase.AuditTrail.OrderByDescending(entry => entry.OccurredAtUtc))
+            {
+                <article class="ci-audit-item">
+                    <strong>@entry.Action</strong>
+                    <p>@entry.Detail</p>
+                    <small>@entry.Actor • @entry.OccurredAtUtc.ToLocalTime().ToString("MMM dd, h:mm tt")</small>
+                </article>
+            }
+        </div>
+    </section>
+}
+
+@code {
+    [Parameter]
+    public Guid Id { get; set; }
+
+    private ClaimCase? claimCase;
+    private string newNote = string.Empty;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        claimCase = await PortalService.GetClaimAsync(Id);
+    }
+
+    private async Task MoveClaimAsync(ClaimStatus status)
+    {
+        if (claimCase is null)
+        {
+            return;
+        }
+
+        await PortalService.TransitionClaimAsync(claimCase.Claim.Id, status, await GetActorAsync());
+        claimCase = await PortalService.GetClaimAsync(Id);
+    }
+
+    private async Task AddNoteAsync()
+    {
+        if (claimCase is null || string.IsNullOrWhiteSpace(newNote))
+        {
+            return;
+        }
+
+        await PortalService.AddClaimNoteAsync(claimCase.Claim.Id, newNote, await GetActorAsync());
+        newNote = string.Empty;
+        claimCase = await PortalService.GetClaimAsync(Id);
+    }
+
+    private static IReadOnlyList<ClaimStatus> GetAvailableClaimTransitions(ClaimStatus status) => status switch
+    {
+        ClaimStatus.Submitted => [ClaimStatus.UnderReview, ClaimStatus.Denied],
+        ClaimStatus.UnderReview => [ClaimStatus.Approved, ClaimStatus.Denied],
+        ClaimStatus.Approved => [ClaimStatus.Paid],
+        ClaimStatus.Paid => [ClaimStatus.Closed],
+        _ => []
+    };
+
+    private async Task<string> GetActorAsync()
+    {
+        var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        return authState.User.FindFirst("name")?.Value ?? authState.User.Identity?.Name ?? "Operations User";
+    }
+
+    private static string FormatEnum<TEnum>(TEnum value) where TEnum : struct, Enum => string.Concat(value.ToString().Select((character, index) => index > 0 && char.IsUpper(character) ? $" {character}" : character.ToString()));
+}

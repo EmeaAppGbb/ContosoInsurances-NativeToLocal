@@ -1,0 +1,309 @@
+@page "/portal/claims"
+@attribute [Authorize]
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject IPortalOperationsService PortalService
+
+<PageTitle>Claims Management</PageTitle>
+
+@if (claims is null)
+{
+    <div class="ci-empty-state">
+        <h2>Loading claims</h2>
+        <p>Preparing the claims workbench.</p>
+    </div>
+}
+else
+{
+    <section class="ci-page-header">
+        <div>
+            <p class="ci-kicker">Claims management</p>
+            <h2>Track each claim through review, payment, and closure.</h2>
+            <p class="ci-muted">Filter, assign, update status, and capture internal notes without leaving the portal.</p>
+        </div>
+    </section>
+
+    <section class="ci-filter-bar">
+        <label>
+            <span>Status</span>
+            <select @bind="statusFilter">
+                <option value="">All statuses</option>
+                @foreach (var status in Enum.GetValues<ClaimStatus>())
+                {
+                    <option value="@status">@FormatEnum(status)</option>
+                }
+            </select>
+        </label>
+        <label>
+            <span>Assignee</span>
+            <select @bind="assigneeFilter">
+                <option value="">All adjusters</option>
+                @foreach (var adjuster in adjusters)
+                {
+                    <option value="@adjuster">@adjuster</option>
+                }
+            </select>
+        </label>
+        <label>
+            <span>Filed on or after</span>
+            <InputDate @bind-Value="filedAfter" />
+        </label>
+        <button type="button" class="btn-ci btn-secondary-ci btn-sm-ci" @onclick="ClearFilters">Clear filters</button>
+    </section>
+
+    <section class="ci-master-detail-grid">
+        <article class="ci-panel">
+            <div class="ci-panel-header">
+                <div>
+                    <h3>Claims queue</h3>
+                    <p>@FilteredClaims.Count() claim(s) match the current filters.</p>
+                </div>
+            </div>
+            <table class="ci-table">
+                <thead>
+                    <tr>
+                        <th><button type="button" class="ci-sort-button" @onclick='() => SetSort("number")'>Claim</button></th>
+                        <th><button type="button" class="ci-sort-button" @onclick='() => SetSort("status")'>Status</button></th>
+                        <th><button type="button" class="ci-sort-button" @onclick='() => SetSort("filed")'>Filed</button></th>
+                        <th><button type="button" class="ci-sort-button" @onclick='() => SetSort("assignee")'>Assignee</button></th>
+                        <th><button type="button" class="ci-sort-button" @onclick='() => SetSort("amount")'>Amount</button></th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var claim in FilteredClaims)
+                    {
+                        <tr class="@(selectedClaim?.Claim.Id == claim.Claim.Id ? "is-selected" : null)">
+                            <td>
+                                <a href="@($"/portal/claims/{claim.Claim.Id}")">@claim.Claim.ClaimNumber</a>
+                                <div class="ci-row-subtitle">@claim.Customer.FirstName @claim.Customer.LastName</div>
+                            </td>
+                            <td><span class="ci-status-pill @(claim.Claim.Status.ToString().ToLowerInvariant())">@FormatEnum(claim.Claim.Status)</span></td>
+                            <td>@claim.Claim.FiledDate.ToString("MMM dd, yyyy")</td>
+                            <td>@claim.Assignee</td>
+                            <td>@claim.Claim.Amount.ToString("C")</td>
+                            <td><button type="button" class="btn-ci btn-secondary-ci btn-sm-ci" @onclick="() => SelectClaim(claim)">Inspect</button></td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </article>
+
+        <article class="ci-panel ci-detail-panel">
+            @if (selectedClaim is null)
+            {
+                <div class="ci-empty-state compact">
+                    <p>Select a claim to review workflow actions, notes, and the audit trail.</p>
+                </div>
+            }
+            else
+            {
+                <div class="ci-panel-header">
+                    <div>
+                        <h3>@selectedClaim.Claim.ClaimNumber</h3>
+                        <p>@selectedClaim.Customer.FirstName @selectedClaim.Customer.LastName • @selectedClaim.Policy.PolicyNumber</p>
+                    </div>
+                    <a class="btn-ci btn-primary-ci btn-sm-ci" href="@($"/portal/claims/{selectedClaim.Claim.Id}")">Open detail</a>
+                </div>
+
+                <div class="ci-summary-grid compact">
+                    <div><span>Status</span><strong>@FormatEnum(selectedClaim.Claim.Status)</strong></div>
+                    <div><span>Severity</span><strong>@selectedClaim.Severity</strong></div>
+                    <div><span>Queue</span><strong>@selectedClaim.QueueName</strong></div>
+                    <div><span>Assignee</span><strong>@selectedClaim.Assignee</strong></div>
+                </div>
+
+                <div class="ci-button-row wrap">
+                    @foreach (var status in GetAvailableClaimTransitions(selectedClaim.Claim.Status))
+                    {
+                        <button type="button" class="btn-ci btn-primary-ci btn-sm-ci" @onclick="() => MoveClaimAsync(status)">@FormatEnum(status)</button>
+                    }
+                </div>
+
+                <div class="ci-inline-actions">
+                    <select @bind="assignmentTarget">
+                        @foreach (var adjuster in adjusters)
+                        {
+                            <option value="@adjuster">@adjuster</option>
+                        }
+                    </select>
+                    <button type="button" class="btn-ci btn-secondary-ci btn-sm-ci" @onclick="AssignAsync">Assign</button>
+                </div>
+
+                <div class="ci-stack">
+                    <section>
+                        <h4>Internal notes</h4>
+                        <textarea @bind="newNote" rows="4" placeholder="Capture next steps, investigation updates, or finance instructions"></textarea>
+                        <button type="button" class="btn-ci btn-secondary-ci btn-sm-ci" @onclick="AddNoteAsync">Add note</button>
+                        <div class="ci-notes-list">
+                            @foreach (var note in selectedClaim.Notes.OrderByDescending(note => note.CreatedAtUtc))
+                            {
+                                <article class="ci-note-card">
+                                    <strong>@note.Author</strong>
+                                    <span>@note.CreatedAtUtc.ToLocalTime().ToString("MMM dd, h:mm tt")</span>
+                                    <p>@note.Body</p>
+                                </article>
+                            }
+                        </div>
+                    </section>
+
+                    <section>
+                        <h4>Audit trail</h4>
+                        <div class="ci-audit-list">
+                            @foreach (var entry in selectedClaim.AuditTrail.OrderByDescending(entry => entry.OccurredAtUtc))
+                            {
+                                <article class="ci-audit-item">
+                                    <strong>@entry.Action</strong>
+                                    <p>@entry.Detail</p>
+                                    <small>@entry.Actor • @entry.OccurredAtUtc.ToLocalTime().ToString("MMM dd, h:mm tt")</small>
+                                </article>
+                            }
+                        </div>
+                    </section>
+                </div>
+            }
+        </article>
+    </section>
+}
+
+@code {
+    private List<ClaimCase>? claims;
+    private List<string> adjusters = [];
+    private ClaimCase? selectedClaim;
+    private string statusFilter = string.Empty;
+    private string assigneeFilter = string.Empty;
+    private DateTime? filedAfter;
+    private string sortColumn = "filed";
+    private bool sortDescending = true;
+    private string assignmentTarget = string.Empty;
+    private string newNote = string.Empty;
+
+    private IEnumerable<ClaimCase> FilteredClaims => ApplySorting(ApplyFilters());
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshAsync();
+    }
+
+    private async Task RefreshAsync()
+    {
+        claims = (await PortalService.GetClaimsAsync()).ToList();
+        adjusters = (await PortalService.GetAdjustersAsync()).ToList();
+        selectedClaim ??= claims.FirstOrDefault();
+        assignmentTarget = selectedClaim?.Assignee ?? adjusters.FirstOrDefault() ?? string.Empty;
+    }
+
+    private IEnumerable<ClaimCase> ApplyFilters()
+    {
+        var query = claims?.AsEnumerable() ?? Enumerable.Empty<ClaimCase>();
+        if (Enum.TryParse<ClaimStatus>(statusFilter, out var status))
+        {
+            query = query.Where(claim => claim.Claim.Status == status);
+        }
+
+        if (!string.IsNullOrWhiteSpace(assigneeFilter))
+        {
+            query = query.Where(claim => string.Equals(claim.Assignee, assigneeFilter, StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (filedAfter.HasValue)
+        {
+            query = query.Where(claim => claim.Claim.FiledDate.Date >= filedAfter.Value.Date);
+        }
+
+        return query;
+    }
+
+    private IEnumerable<ClaimCase> ApplySorting(IEnumerable<ClaimCase> query) => (sortColumn, sortDescending) switch
+    {
+        ("number", false) => query.OrderBy(claim => claim.Claim.ClaimNumber),
+        ("number", true) => query.OrderByDescending(claim => claim.Claim.ClaimNumber),
+        ("status", false) => query.OrderBy(claim => claim.Claim.Status),
+        ("status", true) => query.OrderByDescending(claim => claim.Claim.Status),
+        ("assignee", false) => query.OrderBy(claim => claim.Assignee),
+        ("assignee", true) => query.OrderByDescending(claim => claim.Assignee),
+        ("amount", false) => query.OrderBy(claim => claim.Claim.Amount),
+        ("amount", true) => query.OrderByDescending(claim => claim.Claim.Amount),
+        ("filed", false) => query.OrderBy(claim => claim.Claim.FiledDate),
+        _ => query.OrderByDescending(claim => claim.Claim.FiledDate)
+    };
+
+    private void SetSort(string column)
+    {
+        if (sortColumn == column)
+        {
+            sortDescending = !sortDescending;
+            return;
+        }
+
+        sortColumn = column;
+        sortDescending = column is not "status" and not "assignee";
+    }
+
+    private void SelectClaim(ClaimCase claim)
+    {
+        selectedClaim = claim;
+        assignmentTarget = claim.Assignee;
+        newNote = string.Empty;
+    }
+
+    private async Task MoveClaimAsync(ClaimStatus status)
+    {
+        if (selectedClaim is null)
+        {
+            return;
+        }
+
+        await PortalService.TransitionClaimAsync(selectedClaim.Claim.Id, status, await GetActorAsync());
+        await RefreshAsync();
+        selectedClaim = claims?.SingleOrDefault(claim => claim.Claim.Id == selectedClaim.Claim.Id);
+    }
+
+    private async Task AssignAsync()
+    {
+        if (selectedClaim is null || string.IsNullOrWhiteSpace(assignmentTarget))
+        {
+            return;
+        }
+
+        await PortalService.AssignClaimAsync(selectedClaim.Claim.Id, assignmentTarget, await GetActorAsync());
+        await RefreshAsync();
+        selectedClaim = claims?.SingleOrDefault(claim => claim.Claim.Id == selectedClaim.Claim.Id);
+    }
+
+    private async Task AddNoteAsync()
+    {
+        if (selectedClaim is null || string.IsNullOrWhiteSpace(newNote))
+        {
+            return;
+        }
+
+        await PortalService.AddClaimNoteAsync(selectedClaim.Claim.Id, newNote, await GetActorAsync());
+        newNote = string.Empty;
+        await RefreshAsync();
+        selectedClaim = claims?.SingleOrDefault(claim => claim.Claim.Id == selectedClaim.Claim.Id);
+    }
+
+    private void ClearFilters()
+    {
+        statusFilter = string.Empty;
+        assigneeFilter = string.Empty;
+        filedAfter = null;
+    }
+
+    private static IReadOnlyList<ClaimStatus> GetAvailableClaimTransitions(ClaimStatus status) => status switch
+    {
+        ClaimStatus.Submitted => [ClaimStatus.UnderReview, ClaimStatus.Denied],
+        ClaimStatus.UnderReview => [ClaimStatus.Approved, ClaimStatus.Denied],
+        ClaimStatus.Approved => [ClaimStatus.Paid],
+        ClaimStatus.Paid => [ClaimStatus.Closed],
+        _ => []
+    };
+
+    private async Task<string> GetActorAsync()
+    {
+        var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        return authState.User.FindFirst("name")?.Value ?? authState.User.Identity?.Name ?? "Operations User";
+    }
+
+    private static string FormatEnum<TEnum>(TEnum value) where TEnum : struct, Enum => string.Concat(value.ToString().Select((character, index) => index > 0 && char.IsUpper(character) ? $" {character}" : character.ToString()));
+}

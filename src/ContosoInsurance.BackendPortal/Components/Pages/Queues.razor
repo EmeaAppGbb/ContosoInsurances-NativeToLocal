@@ -1,0 +1,121 @@
+@page "/portal/queues"
+@attribute [Authorize]
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject IPortalOperationsService PortalService
+
+<PageTitle>Queue Monitor</PageTitle>
+
+@if (queues is null)
+{
+    <div class="ci-empty-state">
+        <h2>Loading queue monitor</h2>
+        <p>Connecting to queue snapshots and dead-letter entries.</p>
+    </div>
+}
+else
+{
+    <section class="ci-page-header">
+        <div>
+            <p class="ci-kicker">Queue monitor</p>
+            <h2>RabbitMQ depth and dead-letter recovery</h2>
+            <p class="ci-muted">Observe queue pressure and manually retry or reprocess failed messages.</p>
+        </div>
+    </section>
+
+    <section class="ci-stats-grid">
+        @foreach (var queue in queues)
+        {
+            <article class="ci-stat-card">
+                <span>@queue.Name</span>
+                <strong>@queue.TotalDepth</strong>
+                <small>@queue.ReadyCount ready • @queue.InFlightCount in-flight • @queue.DeadLetterCount dead-letter</small>
+            </article>
+        }
+    </section>
+
+    @foreach (var queue in queues)
+    {
+        <section class="ci-panel">
+            <div class="ci-panel-header">
+                <div>
+                    <h3>@queue.Name</h3>
+                    <p>Updated @queue.LastUpdatedUtc.ToLocalTime().ToString("MMM dd, h:mm tt")</p>
+                </div>
+            </div>
+            <table class="ci-table">
+                <thead>
+                    <tr>
+                        <th>Message</th>
+                        <th>Reason</th>
+                        <th>Attempts</th>
+                        <th>Failed</th>
+                        <th>Status</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @if (queue.DeadLetterEntries.Count == 0)
+                    {
+                        <tr>
+                            <td colspan="6">No dead-letter messages in this queue.</td>
+                        </tr>
+                    }
+                    else
+                    {
+                        @foreach (var entry in queue.DeadLetterEntries.OrderByDescending(entry => entry.FailedAtUtc))
+                        {
+                            <tr>
+                                <td>@entry.Subject</td>
+                                <td>@entry.Reason</td>
+                                <td>@entry.Attempts</td>
+                                <td>@entry.FailedAtUtc.ToLocalTime().ToString("MMM dd, h:mm tt")</td>
+                                <td><span class="ci-status-pill @entry.State.ToString().ToLowerInvariant()">@entry.State</span></td>
+                                <td>
+                                    @if (entry.State == QueueMessageState.DeadLetter)
+                                    {
+                                        <div class="ci-button-row wrap">
+                                            <button type="button" class="btn-ci btn-secondary-ci btn-sm-ci" @onclick="() => RetryAsync(queue.Name, entry.Id)">Retry</button>
+                                            <button type="button" class="btn-ci btn-primary-ci btn-sm-ci" @onclick="() => ReprocessAsync(queue.Name, entry.Id)">Reprocess</button>
+                                        </div>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    }
+                </tbody>
+            </table>
+        </section>
+    }
+}
+
+@code {
+    private List<QueueSnapshot>? queues;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshAsync();
+    }
+
+    private async Task RefreshAsync()
+    {
+        queues = (await PortalService.GetQueuesAsync()).ToList();
+    }
+
+    private async Task RetryAsync(string queueName, string messageId)
+    {
+        await PortalService.RetryQueueMessageAsync(queueName, messageId, await GetActorAsync());
+        await RefreshAsync();
+    }
+
+    private async Task ReprocessAsync(string queueName, string messageId)
+    {
+        await PortalService.ReprocessQueueMessageAsync(queueName, messageId, await GetActorAsync());
+        await RefreshAsync();
+    }
+
+    private async Task<string> GetActorAsync()
+    {
+        var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        return authState.User.FindFirst("name")?.Value ?? authState.User.Identity?.Name ?? "Operations User";
+    }
+}

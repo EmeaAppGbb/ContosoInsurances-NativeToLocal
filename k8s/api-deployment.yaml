@@ -1,32 +1,37 @@
-# API — Internal service only, NOT internet-accessible
+# Public API — internal ClusterIP service, consumed by the public web frontend.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: api
+  name: publicapi
   namespace: contoso-insurance
   labels:
-    app: api
+    app: publicapi
     app.kubernetes.io/part-of: contoso-insurance
 spec:
   replicas: 2
   selector:
     matchLabels:
-      app: api
+      app: publicapi
   template:
     metadata:
       labels:
-        app: api
+        app: publicapi
     spec:
       nodeSelector:
         workload: contoso-insurance
       containers:
-        - name: api
-          image: __ACR_LOGIN_SERVER__/contoso-insurance/api:__TAG__
+        - name: publicapi
+          image: __ACR_LOGIN_SERVER__/contoso-insurance/publicapi:__TAG__
           ports:
             - containerPort: 8080
           env:
             - name: ASPNETCORE_URLS
               value: "http://+:8080"
+            - name: ASPNETCORE_ENVIRONMENT
+              valueFrom:
+                configMapKeyRef:
+                  name: contoso-config
+                  key: ASPNETCORE_ENVIRONMENT
             - name: ConnectionStrings__insurancedb
               valueFrom:
                 secretKeyRef:
@@ -37,6 +42,31 @@ spec:
                 secretKeyRef:
                   name: contoso-secrets
                   key: RABBITMQ_CONNECTION_STRING
+            - name: RabbitMQ__HostName
+              valueFrom:
+                configMapKeyRef:
+                  name: contoso-config
+                  key: RabbitMQ__HostName
+            - name: RabbitMQ__Port
+              valueFrom:
+                configMapKeyRef:
+                  name: contoso-config
+                  key: RabbitMQ__Port
+            - name: RabbitMQ__VirtualHost
+              valueFrom:
+                configMapKeyRef:
+                  name: contoso-config
+                  key: RabbitMQ__VirtualHost
+            - name: RabbitMQ__UserName
+              valueFrom:
+                secretKeyRef:
+                  name: contoso-secrets
+                  key: RabbitMQ__UserName
+            - name: RabbitMQ__Password
+              valueFrom:
+                secretKeyRef:
+                  name: contoso-secrets
+                  key: RabbitMQ__Password
             - name: APPLICATIONINSIGHTS_CONNECTION_STRING
               valueFrom:
                 configMapKeyRef:
@@ -47,8 +77,8 @@ spec:
               cpu: "250m"
               memory: "256Mi"
             limits:
-              cpu: "1000m"
-              memory: "1Gi"
+              cpu: "500m"
+              memory: "512Mi"
           livenessProbe:
             httpGet:
               path: /alive
@@ -64,16 +94,15 @@ spec:
             periodSeconds: 15
             timeoutSeconds: 10
 ---
-# ClusterIP — internal only, no external access
 apiVersion: v1
 kind: Service
 metadata:
-  name: api
+  name: publicapi
   namespace: contoso-insurance
 spec:
   type: ClusterIP
   selector:
-    app: api
+    app: publicapi
   ports:
     - port: 8080
       targetPort: 8080

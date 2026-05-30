@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk.Worker">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UserSecretsId>dotnet-ContosoInsurance.Worker.Claims-62416d24-d03b-4731-849a-33090a87df5a</UserSecretsId>
+    <EnableSdkContainerSupport>true</EnableSdkContainerSupport>
+    <ContainerBaseImage>mcr.microsoft.com/dotnet/aspnet:10.0</ContainerBaseImage>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Aspire.Microsoft.EntityFrameworkCore.SqlServer" Version="13.2.4" />
+    <PackageReference Include="Aspire.RabbitMQ.Client" Version="13.2.4" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.7" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ContosoInsurance.Data\ContosoInsurance.Data.csproj" />
+    <ProjectReference Include="..\ContosoInsurance.Messaging.Contracts\ContosoInsurance.Messaging.Contracts.csproj" />
+    <ProjectReference Include="..\ContosoInsurance.ServiceDefaults\ContosoInsurance.ServiceDefaults.csproj" />
+  </ItemGroup>
+</Project>

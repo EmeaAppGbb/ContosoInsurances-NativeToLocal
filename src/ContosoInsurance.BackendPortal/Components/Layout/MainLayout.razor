@@ -1,0 +1,60 @@
+﻿@inherits LayoutComponentBase
+@inject IConfiguration Configuration
+@inject IHostEnvironment Environment
+
+<div class="portal-shell">
+    <aside class="portal-sidebar">
+        <NavMenu />
+    </aside>
+
+    <main class="portal-main">
+        <header class="portal-topbar">
+            <div>
+                <div class="portal-title-row">
+                    <span class="ci-badge-admin">INTERNAL</span>
+                    <h1>Contoso Insurance — Operations Portal</h1>
+                </div>
+                <p class="portal-subtitle">Claims, quotes, and queue orchestration for internal operations staff.</p>
+            </div>
+
+            <AuthorizeView>
+                <Authorized Context="authState">
+                    <div class="portal-user-panel">
+                        <div>
+                            <div class="portal-user-name">@GetDisplayName(authState.User)</div>
+                            <div class="portal-user-detail">@GetEmail(authState.User)</div>
+                        </div>
+
+                        @if (Environment.IsDevelopment() && Configuration.GetValue<bool>("Authentication:DevBypass"))
+                        {
+                            <span class="ci-badge-warning">DEV BYPASS</span>
+                        }
+
+                        <a class="btn-ci btn-secondary-ci btn-sm-ci" href="/auth/signout">Sign out</a>
+                    </div>
+                </Authorized>
+                <NotAuthorized>
+                    <a class="btn-ci btn-primary-ci btn-sm-ci" href="/auth/signin">Sign in</a>
+                </NotAuthorized>
+            </AuthorizeView>
+        </header>
+
+        <article class="portal-content">
+            @Body
+        </article>
+    </main>
+</div>
+
+<div id="blazor-error-ui" data-nosnippet>
+    An unhandled error has occurred.
+    <a href="." class="reload">Reload</a>
+    <span class="dismiss">🗙</span>
+</div>
+
+@code {
+    private static string GetDisplayName(ClaimsPrincipal user) =>
+        user.FindFirst("name")?.Value ?? user.Identity?.Name ?? "Operations User";
+
+    private static string GetEmail(ClaimsPrincipal user) =>
+        user.FindFirst("preferred_username")?.Value ?? user.FindFirst(ClaimTypes.Email)?.Value ?? "entra-user@contoso";
+}

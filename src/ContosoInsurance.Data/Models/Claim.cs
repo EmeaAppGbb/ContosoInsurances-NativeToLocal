@@ -22,6 +22,7 @@ public class Claim
     public DateTime IncidentDate { get; set; }
     public DateTime FiledDate { get; set; } = DateTime.UtcNow;
     public DateTime? ResolvedDate { get; set; }
+    public Guid WorkflowCorrelationId { get; set; } = Guid.NewGuid();
 
     // Foreign keys
     public Guid PolicyId { get; set; }

@@ -47,6 +47,11 @@
 - Private cluster + App Gateway pattern provides strong security posture while maintaining accessibility
 - Zero-trust network policies (Calico) require explicit allow rules but prevent lateral movement
 
+### Backend Portal Infra Rollout (2026-05-30)
+- Namespace config now owns the shared `contoso-config` ConfigMap so public and private services resolve the same RabbitMQ and Azure AD settings.
+- RabbitMQ moved to a single private StatefulSet + `rabbitmq` service shape with persistent storage, management port, and explicit policy coverage for the split workers.
+- `scripts/deploy-all.ps1` now publishes `publicapi`, `backendapi`, `backendportal`, `worker-claims`, `worker-quotes`, and `worker-projections`, using transitional fallbacks to the current API/worker projects where split projects are not present yet.
+
 ### Entra ID-Only SQL Auth (2026-04-30)
 - MCAPS subscription policies deny Azure SQL with SQL auth; must use Entra ID-only
 - `azureADOnlyAuthentication: true` in the `administrators` block removes all SQL auth

@@ -45,3 +45,5 @@
 - Full stack frontend (Blazor + CSS design system) integrates seamlessly with backend DTOs
 - Custom CSS design system scales well for enterprise branding without bloat
 - API integration patterns established for future page development
+- The backend portal can reuse the public site's `ci-` design system by copying `wwwroot/app.css` into a separate Blazor app and layering darker navy + amber admin accents on top.
+- Microsoft.Identity.Web works cleanly in Blazor Server here when paired with a Development-only bypass authentication handler and a bearer-token delegating handler for the `backendapi` HttpClient.

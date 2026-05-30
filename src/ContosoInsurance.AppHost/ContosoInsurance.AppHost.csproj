@@ -3,7 +3,12 @@
   <ItemGroup>
     <ProjectReference Include="..\ContosoInsurance.Web\ContosoInsurance.Web.csproj" />
     <ProjectReference Include="..\ContosoInsurance.Api\ContosoInsurance.Api.csproj" />
+    <ProjectReference Include="..\ContosoInsurance.BackendApi\ContosoInsurance.BackendApi.csproj" />
     <ProjectReference Include="..\ContosoInsurance.Worker\ContosoInsurance.Worker.csproj" />
+    <ProjectReference Include="..\ContosoInsurance.Worker.Claims\ContosoInsurance.Worker.Claims.csproj" />
+    <ProjectReference Include="..\ContosoInsurance.Worker.Quotes\ContosoInsurance.Worker.Quotes.csproj" />
+    <ProjectReference Include="..\ContosoInsurance.Worker.Projections\ContosoInsurance.Worker.Projections.csproj" />
+    <ProjectReference Include="..\ContosoInsurance.BackendPortal\ContosoInsurance.BackendPortal.csproj" />
   </ItemGroup>
 
   <ItemGroup>

@@ -1,5 +1,15 @@
-# RabbitMQ — StatefulSet with persistent storage
-# Internal only, accessed by API and Worker via ClusterIP service
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: rabbitmq-config
+  namespace: contoso-insurance
+data:
+  rabbitmq.conf: |
+    listeners.tcp.default = 5672
+    management.tcp.port = 15672
+    management.tcp.ip = 0.0.0.0
+    loopback_users.guest = false
+---
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -31,13 +41,19 @@ spec:
               name: management
           env:
             - name: RABBITMQ_DEFAULT_USER
-              value: "guest"
+              valueFrom:
+                secretKeyRef:
+                  name: contoso-secrets
+                  key: RABBITMQ_USERNAME
             - name: RABBITMQ_DEFAULT_PASS
               valueFrom:
                 secretKeyRef:
                   name: contoso-secrets
                   key: RABBITMQ_PASSWORD
           volumeMounts:
+            - name: rabbitmq-config
+              mountPath: /etc/rabbitmq/rabbitmq.conf
+              subPath: rabbitmq.conf
             - name: rabbitmq-data
               mountPath: /var/lib/rabbitmq
           resources:
@@ -60,21 +76,28 @@ spec:
             initialDelaySeconds: 30
             periodSeconds: 15
             timeoutSeconds: 10
+      volumes:
+        - name: rabbitmq-config
+          configMap:
+            name: rabbitmq-config
+            items:
+              - key: rabbitmq.conf
+                path: rabbitmq.conf
   volumeClaimTemplates:
     - metadata:
         name: rabbitmq-data
       spec:
-        accessModes: ["ReadWriteOnce"]
+        accessModes:
+          - ReadWriteOnce
         storageClassName: managed-csi
         resources:
           requests:
-            storage: 8Gi
+            storage: 5Gi
 ---
-# ClusterIP — internal only
 apiVersion: v1
 kind: Service
 metadata:
-  name: rabbitmq-service
+  name: rabbitmq
   namespace: contoso-insurance
 spec:
   type: ClusterIP
@@ -83,7 +106,9 @@ spec:
   ports:
     - port: 5672
       targetPort: 5672
+      protocol: TCP
       name: amqp
     - port: 15672
       targetPort: 15672
+      protocol: TCP
       name: management

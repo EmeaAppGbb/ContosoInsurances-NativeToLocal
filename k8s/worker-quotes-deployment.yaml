@@ -1,0 +1,76 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker-quotes
+  namespace: contoso-insurance
+  labels:
+    app: worker-quotes
+    app.kubernetes.io/part-of: contoso-insurance
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: worker-quotes
+  template:
+    metadata:
+      labels:
+        app: worker-quotes
+    spec:
+      nodeSelector:
+        workload: contoso-insurance
+      containers:
+        - name: worker-quotes
+          image: __ACR_LOGIN_SERVER__/contoso-insurance/worker-quotes:__TAG__
+          env:
+            - name: ASPNETCORE_ENVIRONMENT
+              valueFrom:
+                configMapKeyRef:
+                  name: contoso-config
+                  key: ASPNETCORE_ENVIRONMENT
+            - name: ConnectionStrings__insurancedb
+              valueFrom:
+                secretKeyRef:
+                  name: contoso-secrets
+                  key: SQL_CONNECTION_STRING
+            - name: ConnectionStrings__messaging
+              valueFrom:
+                secretKeyRef:
+                  name: contoso-secrets
+                  key: RABBITMQ_CONNECTION_STRING
+            - name: RabbitMQ__HostName
+              valueFrom:
+                configMapKeyRef:
+                  name: contoso-config
+                  key: RabbitMQ__HostName
+            - name: RabbitMQ__Port
+              valueFrom:
+                configMapKeyRef:
+                  name: contoso-config
+                  key: RabbitMQ__Port
+            - name: RabbitMQ__VirtualHost
+              valueFrom:
+                configMapKeyRef:
+                  name: contoso-config
+                  key: RabbitMQ__VirtualHost
+            - name: RabbitMQ__UserName
+              valueFrom:
+                secretKeyRef:
+                  name: contoso-secrets
+                  key: RabbitMQ__UserName
+            - name: RabbitMQ__Password
+              valueFrom:
+                secretKeyRef:
+                  name: contoso-secrets
+                  key: RabbitMQ__Password
+            - name: APPLICATIONINSIGHTS_CONNECTION_STRING
+              valueFrom:
+                configMapKeyRef:
+                  name: contoso-config
+                  key: APPLICATIONINSIGHTS_CONNECTION_STRING
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"

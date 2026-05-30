@@ -19,9 +19,11 @@ public class Quote
     [Column(TypeName = "decimal(18,2)")]
     public decimal CoverageAmount { get; set; }
 
+    public QuoteStatus Status { get; set; } = QuoteStatus.Requested;
     public bool IsAccepted { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime ExpiresAt { get; set; }
+    public Guid WorkflowCorrelationId { get; set; } = Guid.NewGuid();
 
     // Foreign keys
     public Guid CustomerId { get; set; }

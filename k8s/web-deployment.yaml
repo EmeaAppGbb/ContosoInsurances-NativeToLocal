@@ -44,9 +44,15 @@ spec:
             - name: ASPNETCORE_FORWARDEDHEADERS_ENABLED
               value: "true"
             - name: ASPNETCORE_ENVIRONMENT
-              value: "Production"
+              valueFrom:
+                configMapKeyRef:
+                  name: contoso-config
+                  key: ASPNETCORE_ENVIRONMENT
             - name: ApiBaseUrl
-              value: "http://api:8080"
+              valueFrom:
+                configMapKeyRef:
+                  name: contoso-config
+                  key: ApiBaseUrl
             - name: APPLICATIONINSIGHTS_CONNECTION_STRING
               valueFrom:
                 configMapKeyRef:

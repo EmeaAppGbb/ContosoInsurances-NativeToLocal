@@ -1,0 +1,29 @@
+@if (Items.Count == 0)
+{
+    <div class="ci-empty-state compact">
+        <p>No workflow activity has been recorded yet.</p>
+    </div>
+}
+else
+{
+    <ol class="ci-timeline-list">
+        @foreach (var item in Items.OrderByDescending(step => step.TimestampUtc))
+        {
+            <li class="ci-timeline-item">
+                <span class="ci-timeline-marker @item.State"></span>
+                <div class="ci-timeline-content">
+                    <div class="ci-timeline-header">
+                        <strong>@item.Label</strong>
+                        <span>@item.TimestampUtc.ToLocalTime().ToString("MMM dd, yyyy h:mm tt")</span>
+                    </div>
+                    <p>@item.Description</p>
+                </div>
+            </li>
+        }
+    </ol>
+}
+
+@code {
+    [Parameter]
+    public IReadOnlyList<TimelineStep> Items { get; set; } = [];
+}
