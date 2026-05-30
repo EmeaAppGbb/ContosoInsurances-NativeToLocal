@@ -1,6 +1,6 @@
 # Contoso Insurance
 
-Contoso Insurance is a **.NET 10 Aspire enterprise application** and **learning lab** for moving a cloud-native system across the deployment continuum: **Azure cloud -> Azure Local connected -> Azure Local disconnected**.
+Contoso Insurance is a **.NET 10 Aspire enterprise application** and **learning lab** for moving a cloud-native system across the Azure deployment continuum: **Azure public cloud -> sovereign cloud -> Azure Local connected -> Azure Local disconnected**.
 
 This `main` branch represents the **cloud deployment baseline**: an AKS-hosted application using AGC for ingress, Azure SQL Database for persistence, RabbitMQ for event-driven workflows, and a split architecture that cleanly separates public and private surfaces.
 
@@ -20,9 +20,31 @@ This solution is designed to help teams understand how to:
 
 | Branch | Target | Internet |
 | --- | --- | --- |
-| `main` | Azure (AKS) | Yes |
+| `main` | Azure Public Cloud (AKS) | Yes |
+| `sovereign` | Sovereign Cloud (Germany West Central) | Yes |
 | `local-connected` | Azure Local Connected | Partial |
 | `local-disconnected` | Azure Local Disconnected | No |
+
+## Azure deployment continuum
+
+This repository is a **learning lab for the Azure deployment continuum**, showing how the **same Contoso Insurance application** can run across the full spectrum from fully public cloud to fully disconnected edge.
+
+```mermaid
+flowchart LR
+    Main["Azure Public Cloud\n`main`"]
+    Sovereign["Sovereign Cloud\n`sovereign`\nGermany West Central"]
+    Connected["Azure Local Connected\n`local-connected`\nArc-managed"]
+    Disconnected["Azure Local Disconnected\n`local-disconnected`\nAir-gapped"]
+
+    Main --> Sovereign --> Connected --> Disconnected
+```
+
+**Azure Public Cloud (`main`) -> Sovereign Cloud (`sovereign`) -> Azure Local Connected (`local-connected`) -> Azure Local Disconnected (`local-disconnected`)**
+
+- **Public cloud (`main`)** is the baseline deployment model for standard Azure regions.
+- **Sovereign cloud (`sovereign`)** is for organizations that must meet stricter **data residency, compliance, and regulatory requirements**. In this lab, the `sovereign` branch deploys the same application to **Germany West Central**. Check out the `sovereign` branch, use the `contoso-sovereign` environment, and run `azd up` to deploy into the sovereign region.
+- **Azure Local connected (`local-connected`)** uses the **Azure Local Jumpstart sandbox**, **AKS Arc** for Kubernetes, and **Arc-enabled services** for hybrid management while preserving Azure connectivity. See [docs/local-connected-deployment.md](docs/local-connected-deployment.md) for the full guide.
+- **Azure Local disconnected (`local-disconnected`)** takes the same architecture to an **air-gapped** model when ongoing connectivity to Azure is not available.
 
 ## Deployment baseline (`main`)
 
@@ -149,12 +171,12 @@ tests/
 k8s/                                      # Kubernetes manifests
 scripts/                                  # Deployment scripts
 infra/                                    # Bicep IaC (azd)
-docs/screenshots/                         # App screenshots
+docs/                                     # Screenshots and deployment guides
 ```
 
 ## Deployment model
 
-### Azure deployment
+### Azure deployment (`main`)
 
 Provision infrastructure and deploy with **Azure Developer CLI**:
 
@@ -169,6 +191,24 @@ Key deployment assets:
 - `k8s/` - workload manifests for web, APIs, RabbitMQ, and workers
 
 AGC provides the **Layer 7 ingress path** using **Gateway API** and `HTTPRoute`, giving the application a modern ingress layer aligned with the cloud-first `main` branch architecture.
+
+### Sovereign cloud deployment (`sovereign`)
+
+Sovereign regions are designed for workloads with stricter **data residency, compliance, and regulatory requirements**. The `sovereign` branch deploys the same application architecture to **Germany West Central**.
+
+Deploy from the `sovereign` branch with the `contoso-sovereign` environment:
+
+```bash
+git checkout sovereign
+azd env new contoso-sovereign
+azd up
+```
+
+### Azure Local connected deployment (`local-connected`)
+
+The `local-connected` branch is the hybrid step in the continuum. It targets the **Azure Local Jumpstart sandbox**, runs Kubernetes through **AKS Arc**, and uses **Arc-enabled services** so the environment stays connected to Azure for hybrid management and operations.
+
+For the step-by-step deployment walkthrough, see [docs/local-connected-deployment.md](docs/local-connected-deployment.md).
 
 ## Running locally
 
@@ -211,11 +251,11 @@ Application screenshots are available in `docs/screenshots/`, including:
 
 ## Learning lab focus
 
-Contoso Insurance is intentionally more than an app sample. It is a **reference implementation for hybrid modernization**:
+Contoso Insurance is intentionally more than an app sample. It is a **reference implementation for the Azure deployment continuum**:
 
-- start with a cloud-native Azure deployment
-- preserve clear public/private boundaries
-- move private capabilities closer to the edge with Azure Local
-- continue toward disconnected operation when required
+- start with a cloud-native deployment in the Azure public cloud
+- adapt the same application for sovereign regions with stronger residency and compliance requirements
+- move connected hybrid capabilities into Azure Local with Arc-managed services
+- continue toward fully disconnected operation when required
 
-That makes this repository useful both for **application teams** learning .NET Aspire and for **platform teams** planning cloud-to-edge transitions.
+That makes this repository useful both for **application teams** learning .NET Aspire and for **platform teams** planning public-cloud, sovereign-cloud, hybrid, and edge transitions.
