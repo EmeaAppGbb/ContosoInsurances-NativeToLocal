@@ -1,0 +1,21 @@
+# Azure Developer CLI profile for the Azure Local connected branch.
+# azd does not provision Azure Local resources directly; use this file as the
+# operator-facing workflow definition and run the referenced scripts manually.
+name: contoso-insurance-local-connected
+metadata:
+  template: contoso-insurance-azure-local-connected
+infra:
+  provider: bicep
+  path: infra
+  module: main
+hooks:
+  preprovision:
+    shell: pwsh
+    run: ./infra/local-connected/setup-azure-local.ps1 -ConfigFile ./infra/local-connected/azure-local-params.json
+    interactive: true
+    continueOnError: false
+  postprovision:
+    shell: pwsh
+    run: ./infra/local-connected/deploy-app.ps1 -ConfigFile ./infra/local-connected/azure-local-params.json
+    interactive: true
+    continueOnError: false

@@ -1,0 +1,30 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: __NAMESPACE__
+  labels:
+    app.kubernetes.io/name: contoso-insurance
+    app.kubernetes.io/part-of: contoso-insurance
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: contoso-config
+  namespace: __NAMESPACE__
+data:
+  ASPNETCORE_ENVIRONMENT: "Production"
+  APPLICATIONINSIGHTS_CONNECTION_STRING: "__APPINSIGHTS_CONNECTION_STRING__"
+  ApiBaseUrl: "http://publicapi:8080"
+  BackendApi__BaseUrl: "http://backendapi:8080"
+  BackendApi__Scopes__0: "__BACKEND_API_SCOPE__"
+  RabbitMQ__HostName: "rabbitmq"
+  RabbitMQ__Port: "5672"
+  RabbitMQ__ManagementPort: "15672"
+  RabbitMQ__VirtualHost: "/"
+  AzureAd__Instance: "__AZURE_AD_INSTANCE__"
+  AzureAd__TenantId: "__AZURE_AD_TENANT_ID__"
+  AzureAd__Domain: "__AZURE_AD_DOMAIN__"
+  AzureAd__ClientId: "__BACKEND_PORTAL_AZURE_AD_CLIENT_ID__"
+  AzureAd__CallbackPath: "__BACKEND_PORTAL_AZURE_AD_CALLBACK_PATH__"
+  Authentication__Entra__Authority: "__AUTHORITY__"
+  Authentication__Entra__Audience: "__BACKEND_API_AUDIENCE__"

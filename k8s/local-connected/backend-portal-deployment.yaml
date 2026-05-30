@@ -1,0 +1,125 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backendportal
+  namespace: __NAMESPACE__
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: backendportal
+  template:
+    metadata:
+      labels:
+        app: backendportal
+    spec:
+      imagePullSecrets:
+        - name: acr-pull-secret
+      containers:
+        - name: backendportal
+          image: __ACR_LOGIN_SERVER__/__REPOSITORY_PREFIX__/backendportal:__TAG__
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+          env:
+            - name: ASPNETCORE_URLS
+              value: http://+:8080
+            - name: ASPNETCORE_ENVIRONMENT
+              valueFrom:
+                configMapKeyRef:
+                  name: contoso-config
+                  key: ASPNETCORE_ENVIRONMENT
+            - name: APPLICATIONINSIGHTS_CONNECTION_STRING
+              valueFrom:
+                configMapKeyRef:
+                  name: contoso-config
+                  key: APPLICATIONINSIGHTS_CONNECTION_STRING
+            - name: Authentication__DevBypass
+              value: "false"
+            - name: BackendApi__BaseUrl
+              valueFrom:
+                configMapKeyRef:
+                  name: contoso-config
+                  key: BackendApi__BaseUrl
+            - name: BackendApi__Scopes__0
+              valueFrom:
+                configMapKeyRef:
+                  name: contoso-config
+                  key: BackendApi__Scopes__0
+            - name: AzureAd__Instance
+              valueFrom:
+                configMapKeyRef:
+                  name: contoso-config
+                  key: AzureAd__Instance
+            - name: AzureAd__TenantId
+              valueFrom:
+                configMapKeyRef:
+                  name: contoso-config
+                  key: AzureAd__TenantId
+            - name: AzureAd__Domain
+              valueFrom:
+                configMapKeyRef:
+                  name: contoso-config
+                  key: AzureAd__Domain
+            - name: AzureAd__ClientId
+              valueFrom:
+                configMapKeyRef:
+                  name: contoso-config
+                  key: AzureAd__ClientId
+            - name: AzureAd__ClientSecret
+              valueFrom:
+                secretKeyRef:
+                  name: contoso-secrets
+                  key: AzureAd__ClientSecret
+            - name: AzureAd__CallbackPath
+              valueFrom:
+                configMapKeyRef:
+                  name: contoso-config
+                  key: AzureAd__CallbackPath
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 20
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backendportal
+  namespace: __NAMESPACE__
+spec:
+  selector:
+    app: backendportal
+  ports:
+    - protocol: TCP
+      port: 8080
+      targetPort: 8080
+  type: ClusterIP
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: backendportal
+  namespace: __NAMESPACE__
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: 16m
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: __BACKEND_PORTAL_HOSTNAME__
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: backendportal
+                port:
+                  number: 8080

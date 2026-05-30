@@ -1,0 +1,17 @@
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  name: contoso-public
+  namespace: metallb-system
+spec:
+  addresses:
+    - __METALLB_START_IP__-__METALLB_END_IP__
+---
+apiVersion: metallb.io/v1beta1
+kind: L2Advertisement
+metadata:
+  name: contoso-public
+  namespace: metallb-system
+spec:
+  ipAddressPools:
+    - contoso-public

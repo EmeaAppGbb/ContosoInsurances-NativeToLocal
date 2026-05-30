@@ -1,0 +1,56 @@
+{
+  "subscriptionId": "<azure-subscription-id>",
+  "resourceGroupName": "rg-contoso-local-connected",
+  "azureLocation": "eastus",
+  "arcLocation": "eastus",
+  "azureLocal": {
+    "clusterName": "jumpstart-cluster",
+    "connectedClusterName": "jumpstart-aksarc",
+    "customLocationName": "jumpstart-local-connected",
+    "kubeContext": "jumpstart-aksarc-admin",
+    "arcNamespace": "azure-arc"
+  },
+  "containerRegistry": {
+    "acrName": "contosolocalacr",
+    "acrLoginServer": "contosolocalacr.azurecr.io",
+    "repositoryPrefix": "contoso-insurance"
+  },
+  "network": {
+    "logicalNetworkName": "contoso-local-network",
+    "addressPrefix": "192.168.200.0/24",
+    "gateway": "192.168.200.1",
+    "dnsServers": [
+      "192.168.200.10"
+    ],
+    "vlanId": 0,
+    "loadBalancerPoolName": "contoso-metallb-pool",
+    "loadBalancerStartIp": "192.168.200.220",
+    "loadBalancerEndIp": "192.168.200.229"
+  },
+  "storage": {
+    "storageClassName": "default",
+    "sqlStorageSize": "20Gi",
+    "rabbitMqStorageSize": "5Gi"
+  },
+  "application": {
+    "namespace": "contoso-insurance",
+    "sqlServerServiceName": "sqlserver",
+    "sqlDatabaseName": "ContosoInsurance",
+    "sqlSaUser": "sa",
+    "rabbitMqUser": "guest",
+    "webHostname": "contoso-local.contoso.local",
+    "backendPortalHostname": "contoso-ops.contoso.local"
+  },
+  "identity": {
+    "azureAdInstance": "https://login.microsoftonline.com/",
+    "tenantId": "<entra-tenant-id>",
+    "azureAdDomain": "contoso.onmicrosoft.com",
+    "backendPortalClientId": "<backend-portal-app-id>",
+    "backendPortalCallbackPath": "/signin-oidc",
+    "backendApiClientId": "<backend-api-app-id>",
+    "backendApiAudience": "api://backendapi/access_as_user"
+  },
+  "observability": {
+    "applicationInsightsConnectionString": "<application-insights-connection-string>"
+  }
+}
