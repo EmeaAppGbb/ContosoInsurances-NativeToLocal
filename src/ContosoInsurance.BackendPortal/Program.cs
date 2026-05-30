@@ -62,7 +62,7 @@ app.MapControllers();
 
 app.MapGet("/auth/signin", [AllowAnonymous] (string? returnUrl) =>
     Results.Challenge(
-        new AuthenticationProperties { RedirectUri = string.IsNullOrWhiteSpace(returnUrl) ? "/portal" : returnUrl },
+        new AuthenticationProperties { RedirectUri = string.IsNullOrWhiteSpace(returnUrl) ? "/" : returnUrl },
         authenticationSchemes: [useDevBypass ? DevBypassAuthenticationHandler.SchemeName : OpenIdConnectDefaults.AuthenticationScheme]));
 
 app.MapGet("/auth/signout", (string? returnUrl) =>

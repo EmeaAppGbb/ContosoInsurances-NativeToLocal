@@ -5,10 +5,34 @@
 </div>
 
 <nav class="portal-nav" aria-label="Operations portal">
-    <NavLink class="portal-nav-link" href="/portal" Match="NavLinkMatch.All">Dashboard</NavLink>
-    <NavLink class="portal-nav-link" href="/portal/claims">Claims</NavLink>
-    <NavLink class="portal-nav-link" href="/portal/quotes">Quotes</NavLink>
-    <NavLink class="portal-nav-link" href="/portal/queues">Queue Monitor</NavLink>
+    <NavLink class="portal-nav-link" href="/" Match="NavLinkMatch.All">
+        <span class="portal-nav-icon">DB</span>
+        <span class="portal-nav-text">
+            <strong>Dashboard</strong>
+            <small>Overview, queues, and throughput</small>
+        </span>
+    </NavLink>
+    <NavLink class="portal-nav-link" href="/claims">
+        <span class="portal-nav-icon">CL</span>
+        <span class="portal-nav-text">
+            <strong>Claims</strong>
+            <small>Manage adjuster workload and notes</small>
+        </span>
+    </NavLink>
+    <NavLink class="portal-nav-link" href="/quotes">
+        <span class="portal-nav-icon">QT</span>
+        <span class="portal-nav-text">
+            <strong>Quotes</strong>
+            <small>Review underwriting decisions</small>
+        </span>
+    </NavLink>
+    <NavLink class="portal-nav-link" href="/queue-monitor">
+        <span class="portal-nav-icon">QM</span>
+        <span class="portal-nav-text">
+            <strong>Queue Monitor</strong>
+            <small>Track depth and recover failures</small>
+        </span>
+    </NavLink>
 </nav>
 
 <AuthorizeView>

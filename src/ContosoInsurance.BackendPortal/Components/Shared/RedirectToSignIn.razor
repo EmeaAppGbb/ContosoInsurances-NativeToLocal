@@ -20,7 +20,7 @@
 
         isRedirecting = true;
         var relativeUri = "/" + Navigation.ToBaseRelativePath(Navigation.Uri);
-        var signInUri = QueryHelpers.AddQueryString("/auth/signin", "returnUrl", string.IsNullOrWhiteSpace(relativeUri) || relativeUri == "/" ? "/portal" : relativeUri);
+        var signInUri = QueryHelpers.AddQueryString("/auth/signin", "returnUrl", string.IsNullOrWhiteSpace(relativeUri) || relativeUri == "/" ? "/" : relativeUri);
         Navigation.NavigateTo(signInUri, forceLoad: true);
     }
 }

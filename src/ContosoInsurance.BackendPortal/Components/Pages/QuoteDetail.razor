@@ -1,3 +1,4 @@
+@page "/quotes/{Id:guid}"
 @page "/portal/quotes/{Id:guid}"
 @attribute [Authorize]
 @inject AuthenticationStateProvider AuthenticationStateProvider
@@ -10,7 +11,7 @@
     <div class="ci-empty-state">
         <h2>Quote not found</h2>
         <p>The requested quote is unavailable or has expired.</p>
-        <a class="btn-ci btn-primary-ci" href="/portal/quotes">Back to quotes</a>
+        <a class="btn-ci btn-primary-ci" href="/quotes">Back to quotes</a>
     </div>
 }
 else
@@ -31,7 +32,7 @@ else
             {
                 <button type="button" class="btn-ci btn-primary-ci btn-sm-ci" @onclick="ConvertToPolicyAsync">Convert to policy</button>
             }
-            <a class="btn-ci btn-secondary-ci btn-sm-ci" href="/portal/quotes">Back to quotes</a>
+            <a class="btn-ci btn-secondary-ci btn-sm-ci" href="/quotes">Back to quotes</a>
         </div>
     </section>
 

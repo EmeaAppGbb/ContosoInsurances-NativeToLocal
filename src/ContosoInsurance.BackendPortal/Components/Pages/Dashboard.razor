@@ -1,3 +1,4 @@
+@page "/"
 @page "/portal"
 @attribute [Authorize]
 @inject IPortalOperationsService PortalService
@@ -95,7 +96,7 @@ else
                 <h3>Queue depths</h3>
                 <p>Operational backlog from the backend messaging layer.</p>
             </div>
-            <a class="btn-ci btn-secondary-ci btn-sm-ci" href="/portal/queues">Open queue monitor</a>
+            <a class="btn-ci btn-secondary-ci btn-sm-ci" href="/queue-monitor">Open queue monitor</a>
         </div>
         <table class="ci-table">
             <thead>

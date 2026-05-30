@@ -1,3 +1,4 @@
+@page "/claims"
 @page "/portal/claims"
 @attribute [Authorize]
 @inject AuthenticationStateProvider AuthenticationStateProvider
@@ -74,7 +75,7 @@ else
                     {
                         <tr class="@(selectedClaim?.Claim.Id == claim.Claim.Id ? "is-selected" : null)">
                             <td>
-                                <a href="@($"/portal/claims/{claim.Claim.Id}")">@claim.Claim.ClaimNumber</a>
+                                <a href="@($"/claims/{claim.Claim.Id}")">@claim.Claim.ClaimNumber</a>
                                 <div class="ci-row-subtitle">@claim.Customer.FirstName @claim.Customer.LastName</div>
                             </td>
                             <td><span class="ci-status-pill @(claim.Claim.Status.ToString().ToLowerInvariant())">@FormatEnum(claim.Claim.Status)</span></td>
@@ -102,7 +103,7 @@ else
                         <h3>@selectedClaim.Claim.ClaimNumber</h3>
                         <p>@selectedClaim.Customer.FirstName @selectedClaim.Customer.LastName • @selectedClaim.Policy.PolicyNumber</p>
                     </div>
-                    <a class="btn-ci btn-primary-ci btn-sm-ci" href="@($"/portal/claims/{selectedClaim.Claim.Id}")">Open detail</a>
+                    <a class="btn-ci btn-primary-ci btn-sm-ci" href="@($"/claims/{selectedClaim.Claim.Id}")">Open detail</a>
                 </div>
 
                 <div class="ci-summary-grid compact">
