@@ -1,3 +1,4 @@
+@page "/claims/{Id:guid}"
 @page "/portal/claims/{Id:guid}"
 @attribute [Authorize]
 @inject AuthenticationStateProvider AuthenticationStateProvider
@@ -10,7 +11,7 @@
     <div class="ci-empty-state">
         <h2>Claim not found</h2>
         <p>The requested claim is unavailable or has already been archived.</p>
-        <a class="btn-ci btn-primary-ci" href="/portal/claims">Back to claims</a>
+        <a class="btn-ci btn-primary-ci" href="/claims">Back to claims</a>
     </div>
 }
 else
@@ -26,7 +27,7 @@ else
             {
                 <button type="button" class="btn-ci btn-primary-ci btn-sm-ci" @onclick="() => MoveClaimAsync(status)">@FormatEnum(status)</button>
             }
-            <a class="btn-ci btn-secondary-ci btn-sm-ci" href="/portal/claims">Back to claims</a>
+            <a class="btn-ci btn-secondary-ci btn-sm-ci" href="/claims">Back to claims</a>
         </div>
     </section>
 

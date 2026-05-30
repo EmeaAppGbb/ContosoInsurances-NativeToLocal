@@ -1,3 +1,4 @@
+@page "/quotes"
 @page "/portal/quotes"
 @attribute [Authorize]
 @inject AuthenticationStateProvider AuthenticationStateProvider
@@ -74,7 +75,7 @@ else
                     {
                         <tr class="@(selectedQuote?.Quote.Id == quote.Quote.Id ? "is-selected" : null)">
                             <td>
-                                <a href="@($"/portal/quotes/{quote.Quote.Id}")">@quote.Quote.QuoteNumber</a>
+                                <a href="@($"/quotes/{quote.Quote.Id}")">@quote.Quote.QuoteNumber</a>
                                 <div class="ci-row-subtitle">@quote.Customer.FirstName @quote.Customer.LastName</div>
                             </td>
                             <td><span class="ci-status-pill @(quote.Status.ToString().ToLowerInvariant())">@FormatEnum(quote.Status)</span></td>
@@ -102,7 +103,7 @@ else
                         <h3>@selectedQuote.Quote.QuoteNumber</h3>
                         <p>@selectedQuote.Customer.FirstName @selectedQuote.Customer.LastName • @selectedQuote.Quote.Type</p>
                     </div>
-                    <a class="btn-ci btn-primary-ci btn-sm-ci" href="@($"/portal/quotes/{selectedQuote.Quote.Id}")">Open detail</a>
+                    <a class="btn-ci btn-primary-ci btn-sm-ci" href="@($"/quotes/{selectedQuote.Quote.Id}")">Open detail</a>
                 </div>
 
                 <div class="ci-summary-grid compact">
