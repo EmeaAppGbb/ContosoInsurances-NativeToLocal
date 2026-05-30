@@ -248,6 +248,9 @@ $backendPortalClientSecret = Get-FirstNonEmptyValue -Values @(
     (Get-OptionalEnvValue -Name 'AZURE_AD_BACKEND_PORTAL_CLIENT_SECRET'),
     (Get-OptionalEnvValue -Name 'AZURE_AD_CLIENT_SECRET')
 )
+# Germany West Central / Germany North remain in Azure public cloud, so the
+# default Entra endpoint stays login.microsoftonline.com. Override via
+# AZURE_AD_INSTANCE only when targeting a different sovereign cloud.
 $azureAdInstance = Get-OptionalEnvValue -Name 'AZURE_AD_INSTANCE' -Default 'https://login.microsoftonline.com/'
 $azureAdTenantId = Get-OptionalEnvValue -Name 'AZURE_AD_TENANT_ID' -Default 'common'
 $azureAdDomain = Get-OptionalEnvValue -Name 'AZURE_AD_DOMAIN' -Default 'contoso.onmicrosoft.com'

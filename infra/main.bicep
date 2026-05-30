@@ -22,8 +22,8 @@ targetScope = 'subscription'
 @description('Name of the environment (e.g., dev, staging, prod)')
 param environmentName string
 
-@description('Primary location for all resources')
-param location string
+@description('Primary location for all resources. Sovereign branch defaults to Germany West Central for German data residency and AGC availability.')
+param location string = 'germanywestcentral'
 
 @description('Principal ID of the deploying user/service principal')
 param principalId string
@@ -131,6 +131,9 @@ module aks 'modules/aks.bicep' = {
 }
 
 // Azure SQL Database
+// Sovereign note: German regions do not currently support Azure SQL Database
+// serverless, so the sql module automatically uses provisioned General Purpose
+// compute there while keeping the same private-endpoint + managed-identity pattern.
 module sql 'modules/sql.bicep' = {
   name: 'sql'
   scope: rg
@@ -166,6 +169,9 @@ module keyvault 'modules/keyvault.bicep' = {
 
 // Application Gateway for Containers (AGC) — the ONLY public-facing resource
 // MIGRATION: Replaced App Gateway WAF v2 with AGC. AGIC was retired March 2026.
+// Sovereign note: this branch targets Germany West Central by default because it
+// supports AGC. Germany North should only be used after re-validating AGC regional
+// availability or introducing an alternative ingress implementation.
 // AGC uses Gateway API (not Ingress API) and is managed by the ALB Controller
 // addon running inside AKS. Routing is defined in K8s manifests, not Bicep.
 module appgateway 'modules/appgateway.bicep' = {

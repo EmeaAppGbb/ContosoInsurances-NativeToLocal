@@ -15,6 +15,8 @@
 // Resource type: Microsoft.ServiceNetworking/trafficControllers
 // Requires: A dedicated subnet delegated to Microsoft.ServiceNetworking/trafficControllers
 // K8s side: Gateway API CRDs + ALB Controller addon (see aks.bicep)
+// Sovereign note: AGC is kept for this branch because Germany West Central
+// supports it and preserves identical ingress behavior versus main.
 //
 // KEY ARCHITECTURE CHANGE:
 //   Before: App Gateway WAF v2 → backend pool → AKS internal LoadBalancer

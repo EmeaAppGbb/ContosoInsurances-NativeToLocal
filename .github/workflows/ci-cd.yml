@@ -19,7 +19,7 @@ permissions:
 env:
   DOTNET_VERSION: "10.0.x"
   AZURE_ENV_NAME: ${{ vars.AZURE_ENV_NAME || 'dev' }}
-  AZURE_LOCATION: ${{ vars.AZURE_LOCATION || 'eastus2' }}
+  AZURE_LOCATION: ${{ vars.AZURE_LOCATION || 'germanywestcentral' }}
 
 jobs:
   # --------------------------------------------------------------------------
