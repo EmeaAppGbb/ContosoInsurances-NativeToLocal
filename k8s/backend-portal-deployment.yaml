@@ -1,0 +1,112 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backendportal
+  namespace: contoso-insurance
+  labels:
+    app: backendportal
+    app.kubernetes.io/part-of: contoso-insurance
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: backendportal
+  template:
+    metadata:
+      labels:
+        app: backendportal
+    spec:
+      nodeSelector:
+        workload: contoso-insurance
+      containers:
+        - name: backendportal
+          image: __ACR_LOGIN_SERVER__/contoso-insurance/backendportal:__TAG__
+          ports:
+            - containerPort: 8080
+          env:
+            - name: ASPNETCORE_URLS
+              value: "http://+:8080"
+            - name: ASPNETCORE_ENVIRONMENT
+              value: "Development"
+            - name: Authentication__DevBypass
+              value: "true"
+            - name: BackendApiBaseUrl
+              valueFrom:
+                configMapKeyRef:
+                  name: contoso-config
+                  key: BackendApiBaseUrl
+            - name: BackendApi__BaseUrl
+              valueFrom:
+                configMapKeyRef:
+                  name: contoso-config
+                  key: BackendApi__BaseUrl
+            - name: AzureAd__Instance
+              valueFrom:
+                configMapKeyRef:
+                  name: contoso-config
+                  key: AzureAd__Instance
+            - name: AzureAd__TenantId
+              valueFrom:
+                configMapKeyRef:
+                  name: contoso-config
+                  key: AzureAd__TenantId
+            - name: AzureAd__Domain
+              valueFrom:
+                configMapKeyRef:
+                  name: contoso-config
+                  key: AzureAd__Domain
+            - name: AzureAd__ClientId
+              valueFrom:
+                configMapKeyRef:
+                  name: contoso-config
+                  key: BackendPortal__AzureAd__ClientId
+            - name: AzureAd__CallbackPath
+              valueFrom:
+                configMapKeyRef:
+                  name: contoso-config
+                  key: BackendPortal__AzureAd__CallbackPath
+            - name: AzureAd__ClientSecret
+              valueFrom:
+                secretKeyRef:
+                  name: contoso-secrets
+                  key: BackendPortal__AzureAd__ClientSecret
+            - name: APPLICATIONINSIGHTS_CONNECTION_STRING
+              valueFrom:
+                configMapKeyRef:
+                  name: contoso-config
+                  key: APPLICATIONINSIGHTS_CONNECTION_STRING
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          livenessProbe:
+            httpGet:
+              path: /alive
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            timeoutSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            timeoutSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backendportal
+  namespace: contoso-insurance
+spec:
+  type: ClusterIP
+  selector:
+    app: backendportal
+  ports:
+    - port: 8080
+      targetPort: 8080
+      protocol: TCP

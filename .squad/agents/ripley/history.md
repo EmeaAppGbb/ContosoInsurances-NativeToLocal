@@ -75,6 +75,9 @@
 - Worker uses raw RabbitMQ.Client for claim event processing
 - Web frontend connects to API via Aspire service discovery (`https+http://api`)
 - Squad workflow: charter + agents + parallel fanout + orchestration log + decision consolidation = high-velocity full-stack delivery
+- Backend portal should be a separate Blazor application from the public web app so the trust boundary, deployment boundary, and auth model stay clean for hybrid cloud/local deployment
+- The target hybrid split is public web + public-safe API + public projection data in Azure, with backend portal + private workflow API + private data + workers on Azure Local connected through versioned RabbitMQ contracts
+- RabbitMQ should evolve from a single queue implementation into versioned topic exchanges with outbox, idempotent consumers, retry queues, and sanitized projection events back to the public side
 
 ### README Updated for local-connected Branch (2025-07-24)
 - Rewrote README.md (608 insertions, 98 deletions) to serve as the primary guide for Azure Local connected mode

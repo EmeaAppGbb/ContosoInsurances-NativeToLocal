@@ -1,21 +1,16 @@
-using System.Text;
-using System.Text.Json;
 using ContosoInsurance.Api.DTOs;
-using ContosoInsurance.Api.Events;
+using ContosoInsurance.Api.Messaging;
 using ContosoInsurance.Data;
 using ContosoInsurance.Data.Enums;
 using ContosoInsurance.Data.Models;
+using ContosoInsurance.Messaging.Contracts;
 using Microsoft.EntityFrameworkCore;
-using RabbitMQ.Client;
 
 namespace ContosoInsurance.Api.Services;
 
-public class ClaimService(InsuranceDbContext db, IConnection rabbitConnection) : IClaimService
+public class ClaimService(InsuranceDbContext db, IOutboxDispatcher outboxDispatcher) : IClaimService
 {
-    private const string ClaimEventsQueue = "claim-events";
-
-    public async Task<PaginatedResponse<ClaimResponse>> GetClaimsAsync(
-        ClaimStatus? status, Guid? policyId, int page, int pageSize)
+    public async Task<PaginatedResponse<ClaimResponse>> GetClaimsAsync(ClaimStatus? status, Guid? policyId, int page, int pageSize)
     {
         var query = db.Claims.AsNoTracking().AsQueryable();
 
@@ -28,9 +23,19 @@ public class ClaimService(InsuranceDbContext db, IConnection rabbitConnection) :
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
             .Select(c => new ClaimResponse(
-                c.Id, c.ClaimNumber, c.Status, c.Description,
-                c.Amount, c.IncidentDate, c.FiledDate, c.ResolvedDate,
-                c.PolicyId, c.Policy.PolicyNumber))
+                c.Id,
+                c.ClaimNumber,
+                c.Status,
+                c.Description,
+                c.Amount,
+                c.IncidentDate,
+                c.FiledDate,
+                c.ResolvedDate,
+                c.PolicyId,
+                c.Policy.PolicyNumber,
+                c.WorkflowCorrelationId,
+                db.ClaimProjections.Where(p => p.PublicClaimId == c.Id).Select(p => p.PublicStatus).FirstOrDefault(),
+                db.ClaimProjections.Where(p => p.PublicClaimId == c.Id).Select(p => (DateTime?)p.LastUpdatedAtUtc).FirstOrDefault()))
             .ToListAsync();
 
         return new PaginatedResponse<ClaimResponse>(items, totalCount, page, pageSize);
@@ -41,9 +46,19 @@ public class ClaimService(InsuranceDbContext db, IConnection rabbitConnection) :
         return await db.Claims.AsNoTracking()
             .Where(c => c.Id == id)
             .Select(c => new ClaimResponse(
-                c.Id, c.ClaimNumber, c.Status, c.Description,
-                c.Amount, c.IncidentDate, c.FiledDate, c.ResolvedDate,
-                c.PolicyId, c.Policy.PolicyNumber))
+                c.Id,
+                c.ClaimNumber,
+                c.Status,
+                c.Description,
+                c.Amount,
+                c.IncidentDate,
+                c.FiledDate,
+                c.ResolvedDate,
+                c.PolicyId,
+                c.Policy.PolicyNumber,
+                c.WorkflowCorrelationId,
+                db.ClaimProjections.Where(p => p.PublicClaimId == c.Id).Select(p => p.PublicStatus).FirstOrDefault(),
+                db.ClaimProjections.Where(p => p.PublicClaimId == c.Id).Select(p => (DateTime?)p.LastUpdatedAtUtc).FirstOrDefault()))
             .FirstOrDefaultAsync();
     }
 
@@ -62,6 +77,7 @@ public class ClaimService(InsuranceDbContext db, IConnection rabbitConnection) :
         var claim = new Claim
         {
             Id = Guid.NewGuid(),
+            WorkflowCorrelationId = Guid.NewGuid(),
             ClaimNumber = $"CLM-{DateTime.UtcNow:yyyyMMdd}-{Guid.NewGuid().ToString()[..8].ToUpperInvariant()}",
             PolicyId = request.PolicyId,
             Description = request.Description,
@@ -72,27 +88,33 @@ public class ClaimService(InsuranceDbContext db, IConnection rabbitConnection) :
         };
 
         db.Claims.Add(claim);
+        db.OutboxMessages.Add(OutboxMessageFactory.Create(
+            MessagingTopology.CommandsExchange,
+            RoutingKeys.ClaimSubmittedV1,
+            MessageTypes.ClaimSubmitted,
+            "public-api",
+            "private",
+            "claim",
+            claim.Id.ToString(),
+            claim.WorkflowCorrelationId,
+            null,
+            new ClaimSubmittedEvent(claim.Id, claim.WorkflowCorrelationId, claim.ClaimNumber, claim.PolicyId, claim.Amount, claim.Description, claim.IncidentDate, claim.FiledDate)));
+
         await db.SaveChangesAsync();
-
-        // Publish to RabbitMQ
-        var claimEvent = new ClaimSubmittedEvent(
-            claim.Id, claim.ClaimNumber, claim.PolicyId,
-            claim.Amount, claim.Description, claim.FiledDate);
-
-        await using var channel = await rabbitConnection.CreateChannelAsync();
-        await channel.QueueDeclareAsync(ClaimEventsQueue, durable: true, exclusive: false, autoDelete: false);
-
-        var body = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(claimEvent));
-        await channel.BasicPublishAsync(
-            exchange: string.Empty,
-            routingKey: ClaimEventsQueue,
-            mandatory: false,
-            body: body);
+        await outboxDispatcher.DispatchPendingAsync();
 
         return new ClaimResponse(
-            claim.Id, claim.ClaimNumber, claim.Status, claim.Description,
-            claim.Amount, claim.IncidentDate, claim.FiledDate, claim.ResolvedDate,
-            claim.PolicyId, policy.PolicyNumber);
+            claim.Id,
+            claim.ClaimNumber,
+            claim.Status,
+            claim.Description,
+            claim.Amount,
+            claim.IncidentDate,
+            claim.FiledDate,
+            claim.ResolvedDate,
+            claim.PolicyId,
+            policy.PolicyNumber,
+            claim.WorkflowCorrelationId);
     }
 
     public async Task<ClaimResponse?> UpdateClaimStatusAsync(Guid id, UpdateClaimRequest request)
@@ -107,7 +129,6 @@ public class ClaimService(InsuranceDbContext db, IConnection rabbitConnection) :
             claim.ResolvedDate = DateTime.UtcNow;
 
         await db.SaveChangesAsync();
-
         return await GetClaimByIdAsync(id);
     }
 

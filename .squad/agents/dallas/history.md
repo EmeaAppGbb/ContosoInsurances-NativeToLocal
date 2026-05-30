@@ -49,3 +49,5 @@
 - DTOs keep API contracts decoupled from data models — essential for long-term flexibility
 - RabbitMQ event publishing inside service layer keeps logic centralized
 - Claim state machine validates transitions and prevents invalid states (business rule enforcement at service layer)
+- Public intake shells, private workflow aggregates, sanitized projections, processed-message dedupe, and outbox records can coexist in the shared EF Core database as a clean transition shape before the public/private data split.
+- Keep SQL Server-specific EF model hints out of shared model configuration unless tests account for SQLite; provider-neutral model config preserved full solution testability while adding outbox/projection tables.

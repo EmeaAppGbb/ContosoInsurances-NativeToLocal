@@ -1,0 +1,312 @@
+@page "/portal/quotes"
+@attribute [Authorize]
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject IPortalOperationsService PortalService
+
+<PageTitle>Quotes Management</PageTitle>
+
+@if (quotes is null)
+{
+    <div class="ci-empty-state">
+        <h2>Loading quotes</h2>
+        <p>Preparing the underwriting workbench.</p>
+    </div>
+}
+else
+{
+    <section class="ci-page-header">
+        <div>
+            <p class="ci-kicker">Quotes management</p>
+            <h2>Review, approve, decline, and bind quotes.</h2>
+            <p class="ci-muted">Operations staff can monitor quote flow, adjust premium, and convert approved quotes to policies.</p>
+        </div>
+    </section>
+
+    <section class="ci-filter-bar">
+        <label>
+            <span>Status</span>
+            <select @bind="statusFilter">
+                <option value="">All statuses</option>
+                @foreach (var status in Enum.GetValues<PortalQuoteStatus>())
+                {
+                    <option value="@status">@FormatEnum(status)</option>
+                }
+            </select>
+        </label>
+        <label>
+            <span>Underwriter</span>
+            <select @bind="underwriterFilter">
+                <option value="">All underwriters</option>
+                @foreach (var underwriter in underwriters)
+                {
+                    <option value="@underwriter">@underwriter</option>
+                }
+            </select>
+        </label>
+        <label>
+            <span>Created on or after</span>
+            <InputDate @bind-Value="createdAfter" />
+        </label>
+        <button type="button" class="btn-ci btn-secondary-ci btn-sm-ci" @onclick="ClearFilters">Clear filters</button>
+    </section>
+
+    <section class="ci-master-detail-grid">
+        <article class="ci-panel">
+            <div class="ci-panel-header">
+                <div>
+                    <h3>Quote queue</h3>
+                    <p>@FilteredQuotes.Count() quote(s) match the current filters.</p>
+                </div>
+            </div>
+            <table class="ci-table">
+                <thead>
+                    <tr>
+                        <th><button type="button" class="ci-sort-button" @onclick='() => SetSort("number")'>Quote</button></th>
+                        <th><button type="button" class="ci-sort-button" @onclick='() => SetSort("status")'>Status</button></th>
+                        <th><button type="button" class="ci-sort-button" @onclick='() => SetSort("created")'>Created</button></th>
+                        <th><button type="button" class="ci-sort-button" @onclick='() => SetSort("underwriter")'>Underwriter</button></th>
+                        <th><button type="button" class="ci-sort-button" @onclick='() => SetSort("premium")'>Premium</button></th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var quote in FilteredQuotes)
+                    {
+                        <tr class="@(selectedQuote?.Quote.Id == quote.Quote.Id ? "is-selected" : null)">
+                            <td>
+                                <a href="@($"/portal/quotes/{quote.Quote.Id}")">@quote.Quote.QuoteNumber</a>
+                                <div class="ci-row-subtitle">@quote.Customer.FirstName @quote.Customer.LastName</div>
+                            </td>
+                            <td><span class="ci-status-pill @(quote.Status.ToString().ToLowerInvariant())">@FormatEnum(quote.Status)</span></td>
+                            <td>@quote.Quote.CreatedAt.ToString("MMM dd, yyyy")</td>
+                            <td>@quote.Underwriter</td>
+                            <td>@quote.Quote.EstimatedPremium.ToString("C")</td>
+                            <td><button type="button" class="btn-ci btn-secondary-ci btn-sm-ci" @onclick="() => SelectQuote(quote)">Inspect</button></td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </article>
+
+        <article class="ci-panel ci-detail-panel">
+            @if (selectedQuote is null)
+            {
+                <div class="ci-empty-state compact">
+                    <p>Select a quote to review underwriting actions, premium overrides, and notes.</p>
+                </div>
+            }
+            else
+            {
+                <div class="ci-panel-header">
+                    <div>
+                        <h3>@selectedQuote.Quote.QuoteNumber</h3>
+                        <p>@selectedQuote.Customer.FirstName @selectedQuote.Customer.LastName • @selectedQuote.Quote.Type</p>
+                    </div>
+                    <a class="btn-ci btn-primary-ci btn-sm-ci" href="@($"/portal/quotes/{selectedQuote.Quote.Id}")">Open detail</a>
+                </div>
+
+                <div class="ci-summary-grid compact">
+                    <div><span>Status</span><strong>@FormatEnum(selectedQuote.Status)</strong></div>
+                    <div><span>Underwriter</span><strong>@selectedQuote.Underwriter</strong></div>
+                    <div><span>Coverage</span><strong>@selectedQuote.Quote.CoverageAmount.ToString("C")</strong></div>
+                    <div><span>Premium</span><strong>@selectedQuote.Quote.EstimatedPremium.ToString("C")</strong></div>
+                </div>
+
+                <div class="ci-button-row wrap">
+                    @if (selectedQuote.Status == PortalQuoteStatus.Review)
+                    {
+                        <button type="button" class="btn-ci btn-primary-ci btn-sm-ci" @onclick="() => UpdateQuoteStatusAsync(PortalQuoteStatus.Approved)">Approve</button>
+                        <button type="button" class="btn-ci btn-secondary-ci btn-sm-ci" @onclick="() => UpdateQuoteStatusAsync(PortalQuoteStatus.Declined)">Decline</button>
+                    }
+                    @if (selectedQuote.Status == PortalQuoteStatus.Approved)
+                    {
+                        <button type="button" class="btn-ci btn-primary-ci btn-sm-ci" @onclick="ConvertToPolicyAsync">Convert to policy</button>
+                    }
+                </div>
+
+                <div class="ci-inline-actions stack-on-mobile">
+                    <InputNumber @bind-Value="overridePremium" />
+                    <input @bind="overrideReason" placeholder="Override rationale" />
+                    <button type="button" class="btn-ci btn-secondary-ci btn-sm-ci" @onclick="ApplyPremiumOverrideAsync">Apply premium override</button>
+                </div>
+
+                <div class="ci-stack">
+                    <section>
+                        <h4>Premium breakdown</h4>
+                        <dl class="ci-detail-grid compact">
+                            <div><dt>Base premium</dt><dd>@selectedQuote.PremiumBreakdown.BasePremium.ToString("C")</dd></div>
+                            <div><dt>Risk adjustment</dt><dd>@selectedQuote.PremiumBreakdown.RiskAdjustment.ToString("C")</dd></div>
+                            <div><dt>Taxes and fees</dt><dd>@selectedQuote.PremiumBreakdown.TaxesAndFees.ToString("C")</dd></div>
+                            <div><dt>Discounts</dt><dd>@selectedQuote.PremiumBreakdown.Discount.ToString("C")</dd></div>
+                            <div><dt>Final premium</dt><dd>@selectedQuote.PremiumBreakdown.FinalPremium.ToString("C")</dd></div>
+                        </dl>
+                    </section>
+
+                    <section>
+                        <h4>Underwriting notes</h4>
+                        <textarea @bind="newNote" rows="4" placeholder="Add an underwriting note"></textarea>
+                        <button type="button" class="btn-ci btn-secondary-ci btn-sm-ci" @onclick="AddNoteAsync">Add note</button>
+                        <div class="ci-notes-list">
+                            @foreach (var note in selectedQuote.Notes.OrderByDescending(note => note.CreatedAtUtc))
+                            {
+                                <article class="ci-note-card">
+                                    <strong>@note.Author</strong>
+                                    <span>@note.CreatedAtUtc.ToLocalTime().ToString("MMM dd, h:mm tt")</span>
+                                    <p>@note.Body</p>
+                                </article>
+                            }
+                        </div>
+                    </section>
+                </div>
+            }
+        </article>
+    </section>
+}
+
+@code {
+    private List<QuoteCase>? quotes;
+    private List<string> underwriters = [];
+    private QuoteCase? selectedQuote;
+    private string statusFilter = string.Empty;
+    private string underwriterFilter = string.Empty;
+    private DateTime? createdAfter;
+    private string sortColumn = "created";
+    private bool sortDescending = true;
+    private decimal? overridePremium;
+    private string overrideReason = string.Empty;
+    private string newNote = string.Empty;
+
+    private IEnumerable<QuoteCase> FilteredQuotes => ApplySorting(ApplyFilters());
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshAsync();
+    }
+
+    private async Task RefreshAsync()
+    {
+        quotes = (await PortalService.GetQuotesAsync()).ToList();
+        underwriters = (await PortalService.GetUnderwritersAsync()).ToList();
+        selectedQuote ??= quotes.FirstOrDefault();
+        overridePremium = selectedQuote?.Quote.EstimatedPremium;
+    }
+
+    private IEnumerable<QuoteCase> ApplyFilters()
+    {
+        var query = quotes?.AsEnumerable() ?? Enumerable.Empty<QuoteCase>();
+        if (Enum.TryParse<PortalQuoteStatus>(statusFilter, out var status))
+        {
+            query = query.Where(quote => quote.Status == status);
+        }
+
+        if (!string.IsNullOrWhiteSpace(underwriterFilter))
+        {
+            query = query.Where(quote => string.Equals(quote.Underwriter, underwriterFilter, StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (createdAfter.HasValue)
+        {
+            query = query.Where(quote => quote.Quote.CreatedAt.Date >= createdAfter.Value.Date);
+        }
+
+        return query;
+    }
+
+    private IEnumerable<QuoteCase> ApplySorting(IEnumerable<QuoteCase> query) => (sortColumn, sortDescending) switch
+    {
+        ("number", false) => query.OrderBy(quote => quote.Quote.QuoteNumber),
+        ("number", true) => query.OrderByDescending(quote => quote.Quote.QuoteNumber),
+        ("status", false) => query.OrderBy(quote => quote.Status),
+        ("status", true) => query.OrderByDescending(quote => quote.Status),
+        ("underwriter", false) => query.OrderBy(quote => quote.Underwriter),
+        ("underwriter", true) => query.OrderByDescending(quote => quote.Underwriter),
+        ("premium", false) => query.OrderBy(quote => quote.Quote.EstimatedPremium),
+        ("premium", true) => query.OrderByDescending(quote => quote.Quote.EstimatedPremium),
+        ("created", false) => query.OrderBy(quote => quote.Quote.CreatedAt),
+        _ => query.OrderByDescending(quote => quote.Quote.CreatedAt)
+    };
+
+    private void SetSort(string column)
+    {
+        if (sortColumn == column)
+        {
+            sortDescending = !sortDescending;
+            return;
+        }
+
+        sortColumn = column;
+        sortDescending = column is not "status" and not "underwriter";
+    }
+
+    private void SelectQuote(QuoteCase quote)
+    {
+        selectedQuote = quote;
+        overridePremium = quote.Quote.EstimatedPremium;
+        overrideReason = string.Empty;
+        newNote = string.Empty;
+    }
+
+    private async Task UpdateQuoteStatusAsync(PortalQuoteStatus status)
+    {
+        if (selectedQuote is null)
+        {
+            return;
+        }
+
+        await PortalService.SetQuoteStatusAsync(selectedQuote.Quote.Id, status, await GetActorAsync());
+        await RefreshAsync();
+        selectedQuote = quotes?.SingleOrDefault(quote => quote.Quote.Id == selectedQuote.Quote.Id);
+    }
+
+    private async Task ApplyPremiumOverrideAsync()
+    {
+        if (selectedQuote is null || overridePremium is null || string.IsNullOrWhiteSpace(overrideReason))
+        {
+            return;
+        }
+
+        await PortalService.OverridePremiumAsync(selectedQuote.Quote.Id, overridePremium.Value, overrideReason, await GetActorAsync());
+        await RefreshAsync();
+        selectedQuote = quotes?.SingleOrDefault(quote => quote.Quote.Id == selectedQuote.Quote.Id);
+    }
+
+    private async Task ConvertToPolicyAsync()
+    {
+        if (selectedQuote is null)
+        {
+            return;
+        }
+
+        await PortalService.ConvertQuoteToPolicyAsync(selectedQuote.Quote.Id, await GetActorAsync());
+        await RefreshAsync();
+        selectedQuote = quotes?.SingleOrDefault(quote => quote.Quote.Id == selectedQuote.Quote.Id);
+    }
+
+    private async Task AddNoteAsync()
+    {
+        if (selectedQuote is null || string.IsNullOrWhiteSpace(newNote))
+        {
+            return;
+        }
+
+        await PortalService.AddQuoteNoteAsync(selectedQuote.Quote.Id, newNote, await GetActorAsync());
+        newNote = string.Empty;
+        await RefreshAsync();
+        selectedQuote = quotes?.SingleOrDefault(quote => quote.Quote.Id == selectedQuote.Quote.Id);
+    }
+
+    private void ClearFilters()
+    {
+        statusFilter = string.Empty;
+        underwriterFilter = string.Empty;
+        createdAfter = null;
+    }
+
+    private async Task<string> GetActorAsync()
+    {
+        var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        return authState.User.FindFirst("name")?.Value ?? authState.User.Identity?.Name ?? "Operations User";
+    }
+
+    private static string FormatEnum<TEnum>(TEnum value) where TEnum : struct, Enum => string.Concat(value.ToString().Select((character, index) => index > 0 && char.IsUpper(character) ? $" {character}" : character.ToString()));
+}

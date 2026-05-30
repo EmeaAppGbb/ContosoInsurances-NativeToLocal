@@ -4,5 +4,27 @@ metadata:
   name: contoso-insurance
   labels:
     app.kubernetes.io/part-of: contoso-insurance
-    # CHANGE: managed-by changed from azd to arc-gitops (Flux manages deployment)
-    app.kubernetes.io/managed-by: arc-gitops
+    app.kubernetes.io/managed-by: azd
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: contoso-config
+  namespace: contoso-insurance
+data:
+  ASPNETCORE_ENVIRONMENT: "Production"
+  APPLICATIONINSIGHTS_CONNECTION_STRING: "__APPINSIGHTS_CONNECTION_STRING__"
+  ApiBaseUrl: "http://publicapi:8080"
+  BackendApiBaseUrl: "http://backendapi:8080"
+  BackendApi__BaseUrl: "http://backendapi:8080"
+  RabbitMQ__HostName: "rabbitmq"
+  RabbitMQ__Port: "5672"
+  RabbitMQ__ManagementPort: "15672"
+  RabbitMQ__VirtualHost: "/"
+  AzureAd__Instance: "__AZURE_AD_INSTANCE__"
+  AzureAd__TenantId: "__AZURE_AD_TENANT_ID__"
+  AzureAd__Domain: "__AZURE_AD_DOMAIN__"
+  BackendPortal__AzureAd__ClientId: "__BACKEND_PORTAL_AZURE_AD_CLIENT_ID__"
+  BackendPortal__AzureAd__CallbackPath: "__BACKEND_PORTAL_AZURE_AD_CALLBACK_PATH__"
+  BackendApi__AzureAd__ClientId: "__BACKEND_API_AZURE_AD_CLIENT_ID__"
+  BackendApi__AzureAd__Audience: "__BACKEND_API_AZURE_AD_AUDIENCE__"

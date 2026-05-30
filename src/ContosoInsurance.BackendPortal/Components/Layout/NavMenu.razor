@@ -1,0 +1,31 @@
+﻿<div class="portal-brand-block">
+    <div class="portal-brand-kicker">Contoso Insurance</div>
+    <div class="portal-brand-title">Operations Portal</div>
+    <p class="portal-brand-copy">Internal control center for claims, quotes, and queue response.</p>
+</div>
+
+<nav class="portal-nav" aria-label="Operations portal">
+    <NavLink class="portal-nav-link" href="/portal" Match="NavLinkMatch.All">Dashboard</NavLink>
+    <NavLink class="portal-nav-link" href="/portal/claims">Claims</NavLink>
+    <NavLink class="portal-nav-link" href="/portal/quotes">Quotes</NavLink>
+    <NavLink class="portal-nav-link" href="/portal/queues">Queue Monitor</NavLink>
+</nav>
+
+<AuthorizeView>
+    <Authorized Context="authState">
+        <div class="portal-sidebar-user">
+            <span class="portal-sidebar-label">Signed in</span>
+            <strong>@GetDisplayName(authState.User)</strong>
+            <span>@GetEmail(authState.User)</span>
+        </div>
+    </Authorized>
+</AuthorizeView>
+
+@code {
+    private static string GetDisplayName(ClaimsPrincipal user) =>
+        user.FindFirst("name")?.Value ?? user.Identity?.Name ?? "Operations User";
+
+    private static string GetEmail(ClaimsPrincipal user) =>
+        user.FindFirst("preferred_username")?.Value ?? user.FindFirst(ClaimTypes.Email)?.Value ?? "entra-user@contoso";
+}
+

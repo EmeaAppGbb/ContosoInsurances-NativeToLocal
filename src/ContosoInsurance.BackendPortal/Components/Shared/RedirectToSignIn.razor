@@ -1,0 +1,26 @@
+@inject NavigationManager Navigation
+
+@if (isRedirecting)
+{
+    <div class="ci-empty-state">
+        <h2>Redirecting to sign-in</h2>
+        <p>Authenticating operations staff for the internal portal.</p>
+    </div>
+}
+
+@code {
+    private bool isRedirecting;
+
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            return;
+        }
+
+        isRedirecting = true;
+        var relativeUri = "/" + Navigation.ToBaseRelativePath(Navigation.Uri);
+        var signInUri = QueryHelpers.AddQueryString("/auth/signin", "returnUrl", string.IsNullOrWhiteSpace(relativeUri) || relativeUri == "/" ? "/portal" : relativeUri);
+        Navigation.NavigateTo(signInUri, forceLoad: true);
+    }
+}

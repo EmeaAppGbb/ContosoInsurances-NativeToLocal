@@ -59,12 +59,39 @@ public static class SeedData
         // Quotes
         var quotes = new List<Quote>
         {
-            new() { Id = Guid.NewGuid(), QuoteNumber = "QTE-20250301-AUTO0001", Type = PolicyType.Auto, EstimatedPremium = 116.67m, CoverageAmount = 40000m, IsAccepted = false, CreatedAt = DateTime.UtcNow.AddDays(-5), ExpiresAt = DateTime.UtcNow.AddDays(25), CustomerId = customers[3].Id },
-            new() { Id = Guid.NewGuid(), QuoteNumber = "QTE-20250302-HOME0001", Type = PolicyType.Home, EstimatedPremium = 312.50m, CoverageAmount = 150000m, IsAccepted = true, CreatedAt = DateTime.UtcNow.AddDays(-20), ExpiresAt = DateTime.UtcNow.AddDays(10), CustomerId = customers[4].Id },
-            new() { Id = Guid.NewGuid(), QuoteNumber = "QTE-20250303-LIFE0001", Type = PolicyType.Life, EstimatedPremium = 125.00m, CoverageAmount = 100000m, IsAccepted = false, CreatedAt = DateTime.UtcNow.AddDays(-2), ExpiresAt = DateTime.UtcNow.AddDays(28), CustomerId = customers[6].Id },
+            new() { Id = Guid.NewGuid(), QuoteNumber = "QTE-20250301-AUTO0001", Type = PolicyType.Auto, Status = QuoteStatus.Underwriting, EstimatedPremium = 116.67m, CoverageAmount = 40000m, IsAccepted = false, CreatedAt = DateTime.UtcNow.AddDays(-5), ExpiresAt = DateTime.UtcNow.AddDays(25), CustomerId = customers[3].Id },
+            new() { Id = Guid.NewGuid(), QuoteNumber = "QTE-20250302-HOME0001", Type = PolicyType.Home, Status = QuoteStatus.Approved, EstimatedPremium = 312.50m, CoverageAmount = 150000m, IsAccepted = true, CreatedAt = DateTime.UtcNow.AddDays(-20), ExpiresAt = DateTime.UtcNow.AddDays(10), CustomerId = customers[4].Id },
+            new() { Id = Guid.NewGuid(), QuoteNumber = "QTE-20250303-LIFE0001", Type = PolicyType.Life, Status = QuoteStatus.Requested, EstimatedPremium = 125.00m, CoverageAmount = 100000m, IsAccepted = false, CreatedAt = DateTime.UtcNow.AddDays(-2), ExpiresAt = DateTime.UtcNow.AddDays(28), CustomerId = customers[6].Id },
         };
 
         db.Quotes.AddRange(quotes);
+        await db.SaveChangesAsync();
+
+        var claimProjections = claims.Select(claim => new ClaimProjection
+        {
+            PublicClaimId = claim.Id,
+            ClaimNumber = claim.ClaimNumber,
+            WorkflowCorrelationId = claim.WorkflowCorrelationId,
+            PublicStatus = claim.Status.ToString(),
+            StatusSummary = $"Claim is {claim.Status}.",
+            LastUpdatedAtUtc = claim.ResolvedDate ?? claim.FiledDate,
+            LastMessageId = Guid.NewGuid()
+        });
+
+        var quoteProjections = quotes.Select(quote => new QuoteProjection
+        {
+            PublicQuoteId = quote.Id,
+            QuoteNumber = quote.QuoteNumber,
+            WorkflowCorrelationId = quote.WorkflowCorrelationId,
+            PublicStatus = quote.Status.ToString(),
+            EstimatedPremium = quote.EstimatedPremium,
+            StatusSummary = $"Quote is {quote.Status}.",
+            LastUpdatedAtUtc = quote.CreatedAt,
+            LastMessageId = Guid.NewGuid()
+        });
+
+        db.ClaimProjections.AddRange(claimProjections);
+        db.QuoteProjections.AddRange(quoteProjections);
         await db.SaveChangesAsync();
     }
 }

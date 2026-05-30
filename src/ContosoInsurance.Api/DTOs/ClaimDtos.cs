@@ -23,4 +23,7 @@ public record ClaimResponse(
     DateTime FiledDate,
     DateTime? ResolvedDate,
     Guid PolicyId,
-    string PolicyNumber);
+    string PolicyNumber,
+    Guid WorkflowCorrelationId,
+    string? PublicStatus = null,
+    DateTime? ProjectionUpdatedAtUtc = null);

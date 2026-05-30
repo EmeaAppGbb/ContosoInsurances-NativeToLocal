@@ -16,6 +16,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\ContosoInsurance.Data\ContosoInsurance.Data.csproj" />
+    <ProjectReference Include="..\ContosoInsurance.Messaging.Contracts\ContosoInsurance.Messaging.Contracts.csproj" />
     <ProjectReference Include="..\ContosoInsurance.ServiceDefaults\ContosoInsurance.ServiceDefaults.csproj" />
   </ItemGroup>
 

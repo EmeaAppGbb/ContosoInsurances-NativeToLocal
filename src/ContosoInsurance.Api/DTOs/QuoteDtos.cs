@@ -18,4 +18,7 @@ public record QuoteResponse(
     DateTime CreatedAt,
     DateTime ExpiresAt,
     Guid CustomerId,
-    string CustomerName);
+    string CustomerName,
+    Guid WorkflowCorrelationId,
+    string? PublicStatus = null,
+    DateTime? ProjectionUpdatedAtUtc = null);

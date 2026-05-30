@@ -1,19 +1,8 @@
 # ============================================================================
-# Network Policies - Zero-trust within the cluster (Azure Local Connected)
-# ============================================================================
-#
-# MIGRATION (April 2026):
-# Updated for AGC (Application Gateway for Containers). Key changes:
-#   1. Web frontend ingress: Changed from NGINX Ingress namespace selector
-#      to allowing traffic from the ALB Controller / AGC tunnel. In connected
-#      mode, AGC routes traffic through the Arc tunnel, which appears as
-#      traffic from within the cluster (azure-alb-system namespace).
-#   2. Removed ingress-nginx namespace references (NGINX retired March 2026)
-#   3. API/Worker SQL egress unchanged (still targets arc-data namespace)
-#   4. All pods still need outbound HTTPS to Azure services
+# Network Policies — Zero-trust within the cluster
+# Default: deny all ingress/egress, then allow only required flows.
 # ============================================================================
 
-# Default deny all ingress/egress in the namespace
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -26,10 +15,6 @@ spec:
     - Egress
 
 ---
-# Web Frontend: allow ingress from AGC (via ALB Controller), allow egress to API + Azure
-# MIGRATION: Changed from ingress-nginx namespace to azure-alb-system namespace.
-# AGC routes traffic through the Arc tunnel; the ALB Controller pods in
-# azure-alb-system namespace forward traffic to the web frontend.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -43,25 +28,17 @@ spec:
     - Ingress
     - Egress
   ingress:
-    # Allow traffic from ALB Controller namespace (AGC tunnel endpoint)
-    # MIGRATION: Was ingress-nginx namespace; now azure-alb-system
-    - from:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: azure-alb-system
-      ports:
+    - ports:
         - port: 8080
           protocol: TCP
   egress:
-    # Allow calling the API service
     - to:
         - podSelector:
             matchLabels:
-              app: api
+              app: publicapi
       ports:
         - port: 8080
           protocol: TCP
-    # Allow DNS resolution
     - to:
         - namespaceSelector: {}
       ports:
@@ -69,29 +46,17 @@ spec:
           protocol: UDP
         - port: 53
           protocol: TCP
-    # Allow outbound HTTPS to Azure services (App Insights telemetry)
-    - to:
-        - ipBlock:
-            cidr: 0.0.0.0/0
-            except:
-              - 10.0.0.0/8
-              - 172.16.0.0/12
-              - 192.168.0.0/16
-      ports:
-        - port: 443
-          protocol: TCP
 
 ---
-# API: allow ingress from Web Frontend, allow egress to SQL MI, RabbitMQ, Azure
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: allow-api
+  name: allow-publicapi
   namespace: contoso-insurance
 spec:
   podSelector:
     matchLabels:
-      app: api
+      app: publicapi
   policyTypes:
     - Ingress
     - Egress
@@ -104,7 +69,6 @@ spec:
         - port: 8080
           protocol: TCP
   egress:
-    # RabbitMQ
     - to:
         - podSelector:
             matchLabels:
@@ -112,23 +76,18 @@ spec:
       ports:
         - port: 5672
           protocol: TCP
-    # Arc SQL MI runs as a pod in the arc-data namespace
     - to:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: arc-data
+        - ipBlock:
+            cidr: 10.0.17.0/24
       ports:
         - port: 1433
           protocol: TCP
-    # DNS
     - to:
-        - namespaceSelector: {}
+        - ipBlock:
+            cidr: 169.254.169.254/32
       ports:
-        - port: 53
-          protocol: UDP
-        - port: 53
+        - port: 80
           protocol: TCP
-    # Outbound HTTPS to Azure services (App Insights, Key Vault)
     - to:
         - ipBlock:
             cidr: 0.0.0.0/0
@@ -139,48 +98,39 @@ spec:
       ports:
         - port: 443
           protocol: TCP
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
 
 ---
-# Worker: allow egress to SQL MI, RabbitMQ, and Azure (no ingress needed)
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: allow-worker
+  name: allow-backendportal
   namespace: contoso-insurance
 spec:
   podSelector:
     matchLabels:
-      app: worker
+      app: backendportal
   policyTypes:
     - Ingress
     - Egress
-  ingress: []  # Worker receives no inbound traffic
+  ingress:
+    - ports:
+        - port: 8080
+          protocol: TCP
   egress:
-    # RabbitMQ
     - to:
         - podSelector:
             matchLabels:
-              app: rabbitmq
+              app: backendapi
       ports:
-        - port: 5672
+        - port: 8080
           protocol: TCP
-    # Arc SQL MI in arc-data namespace
-    - to:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: arc-data
-      ports:
-        - port: 1433
-          protocol: TCP
-    # DNS
-    - to:
-        - namespaceSelector: {}
-      ports:
-        - port: 53
-          protocol: UDP
-        - port: 53
-          protocol: TCP
-    # Outbound HTTPS to Azure services
     - to:
         - ipBlock:
             cidr: 0.0.0.0/0
@@ -191,9 +141,230 @@ spec:
       ports:
         - port: 443
           protocol: TCP
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
 
 ---
-# RabbitMQ: allow ingress from API and Worker only (unchanged logic)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-backendapi
+  namespace: contoso-insurance
+spec:
+  podSelector:
+    matchLabels:
+      app: backendapi
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: backendportal
+      ports:
+        - port: 8080
+          protocol: TCP
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: rabbitmq
+      ports:
+        - port: 5672
+          protocol: TCP
+    - to:
+        - ipBlock:
+            cidr: 10.0.17.0/24
+      ports:
+        - port: 1433
+          protocol: TCP
+    - to:
+        - ipBlock:
+            cidr: 169.254.169.254/32
+      ports:
+        - port: 80
+          protocol: TCP
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - port: 443
+          protocol: TCP
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-worker-claims
+  namespace: contoso-insurance
+spec:
+  podSelector:
+    matchLabels:
+      app: worker-claims
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress: []
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: rabbitmq
+      ports:
+        - port: 5672
+          protocol: TCP
+    - to:
+        - ipBlock:
+            cidr: 10.0.17.0/24
+      ports:
+        - port: 1433
+          protocol: TCP
+    - to:
+        - ipBlock:
+            cidr: 169.254.169.254/32
+      ports:
+        - port: 80
+          protocol: TCP
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - port: 443
+          protocol: TCP
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-worker-quotes
+  namespace: contoso-insurance
+spec:
+  podSelector:
+    matchLabels:
+      app: worker-quotes
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress: []
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: rabbitmq
+      ports:
+        - port: 5672
+          protocol: TCP
+    - to:
+        - ipBlock:
+            cidr: 10.0.17.0/24
+      ports:
+        - port: 1433
+          protocol: TCP
+    - to:
+        - ipBlock:
+            cidr: 169.254.169.254/32
+      ports:
+        - port: 80
+          protocol: TCP
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - port: 443
+          protocol: TCP
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-worker-projections
+  namespace: contoso-insurance
+spec:
+  podSelector:
+    matchLabels:
+      app: worker-projections
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress: []
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: rabbitmq
+      ports:
+        - port: 5672
+          protocol: TCP
+    - to:
+        - ipBlock:
+            cidr: 10.0.17.0/24
+      ports:
+        - port: 1433
+          protocol: TCP
+    - to:
+        - ipBlock:
+            cidr: 169.254.169.254/32
+      ports:
+        - port: 80
+          protocol: TCP
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - port: 443
+          protocol: TCP
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+
+---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -210,15 +381,28 @@ spec:
     - from:
         - podSelector:
             matchLabels:
-              app: api
+              app: publicapi
         - podSelector:
             matchLabels:
-              app: worker
+              app: backendapi
+        - podSelector:
+            matchLabels:
+              app: worker-claims
+        - podSelector:
+            matchLabels:
+              app: worker-quotes
+        - podSelector:
+            matchLabels:
+              app: worker-projections
       ports:
         - port: 5672
           protocol: TCP
+    - from:
+        - podSelector: {}
+      ports:
+        - port: 15672
+          protocol: TCP
   egress:
-    # DNS only
     - to:
         - namespaceSelector: {}
       ports:

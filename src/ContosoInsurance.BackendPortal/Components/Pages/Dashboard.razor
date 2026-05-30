@@ -1,0 +1,135 @@
+@page "/portal"
+@attribute [Authorize]
+@inject IPortalOperationsService PortalService
+
+<PageTitle>Operations Dashboard</PageTitle>
+
+@if (dashboard is null)
+{
+    <div class="ci-empty-state">
+        <h2>Loading dashboard</h2>
+        <p>Gathering claims, quotes, and queue metrics.</p>
+    </div>
+}
+else
+{
+    <section class="ci-page-header">
+        <div>
+            <p class="ci-kicker">Operations overview</p>
+            <h2>Today's processing picture</h2>
+            <p class="ci-muted">@dashboard.BackendApiMode • @dashboard.TotalQueueDepth work items across active queues.</p>
+        </div>
+    </section>
+
+    <section class="ci-stats-grid">
+        <article class="ci-stat-card">
+            <span>Active claims</span>
+            <strong>@dashboard.ActiveClaimsCount</strong>
+            <small>Submitted, under review, and approved claims</small>
+        </article>
+        <article class="ci-stat-card">
+            <span>Pending quotes</span>
+            <strong>@dashboard.PendingQuotesCount</strong>
+            <small>Quotes waiting on underwriting review</small>
+        </article>
+        <article class="ci-stat-card">
+            <span>Ready for payout</span>
+            <strong>@dashboard.ReadyForPayoutCount</strong>
+            <small>Approved claims ready for finance settlement</small>
+        </article>
+        <article class="ci-stat-card accent">
+            <span>Queue depth</span>
+            <strong>@dashboard.TotalQueueDepth</strong>
+            <small>RabbitMQ ready + in-flight + dead-letter workload</small>
+        </article>
+    </section>
+
+    <section class="ci-two-column-grid">
+        <article class="ci-panel">
+            <div class="ci-panel-header">
+                <div>
+                    <h3>Processing stats</h3>
+                    <p>Shift-level SLA and throughput indicators.</p>
+                </div>
+            </div>
+            <div class="ci-stat-list">
+                @foreach (var stat in dashboard.ProcessingStats)
+                {
+                    <div class="ci-stat-row">
+                        <div>
+                            <strong>@stat.Label</strong>
+                            <p>@stat.Trend</p>
+                        </div>
+                        <span>@stat.Value</span>
+                    </div>
+                }
+            </div>
+        </article>
+
+        <article class="ci-panel">
+            <div class="ci-panel-header">
+                <div>
+                    <h3>Recent activity</h3>
+                    <p>Latest workflow changes across claims, quotes, and queues.</p>
+                </div>
+            </div>
+            <div class="ci-activity-feed">
+                @foreach (var activity in dashboard.RecentActivity)
+                {
+                    <div class="ci-activity-item">
+                        <span class="ci-activity-tag">@activity.Category</span>
+                        <div>
+                            <strong>@activity.Title</strong>
+                            <p>@activity.Description</p>
+                            <small>@activity.Actor • @activity.OccurredAtUtc.ToLocalTime().ToString("MMM dd, h:mm tt")</small>
+                        </div>
+                    </div>
+                }
+            </div>
+        </article>
+    </section>
+
+    <section class="ci-panel">
+        <div class="ci-panel-header">
+            <div>
+                <h3>Queue depths</h3>
+                <p>Operational backlog from the backend messaging layer.</p>
+            </div>
+            <a class="btn-ci btn-secondary-ci btn-sm-ci" href="/portal/queues">Open queue monitor</a>
+        </div>
+        <table class="ci-table">
+            <thead>
+                <tr>
+                    <th>Queue</th>
+                    <th>Ready</th>
+                    <th>In flight</th>
+                    <th>Dead letter</th>
+                    <th>Total depth</th>
+                    <th>Updated</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var queue in dashboard.Queues)
+                {
+                    <tr>
+                        <td>@queue.Name</td>
+                        <td>@queue.ReadyCount</td>
+                        <td>@queue.InFlightCount</td>
+                        <td>@queue.DeadLetterCount</td>
+                        <td>@queue.TotalDepth</td>
+                        <td>@queue.LastUpdatedUtc.ToLocalTime().ToString("MMM dd, h:mm tt")</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </section>
+}
+
+@code {
+    private DashboardSnapshot? dashboard;
+
+    protected override async Task OnInitializedAsync()
+    {
+        dashboard = await PortalService.GetDashboardAsync();
+    }
+}

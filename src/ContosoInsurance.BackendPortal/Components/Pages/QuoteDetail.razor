@@ -1,0 +1,167 @@
+@page "/portal/quotes/{Id:guid}"
+@attribute [Authorize]
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject IPortalOperationsService PortalService
+
+<PageTitle>Quote Detail</PageTitle>
+
+@if (quoteCase is null)
+{
+    <div class="ci-empty-state">
+        <h2>Quote not found</h2>
+        <p>The requested quote is unavailable or has expired.</p>
+        <a class="btn-ci btn-primary-ci" href="/portal/quotes">Back to quotes</a>
+    </div>
+}
+else
+{
+    <section class="ci-page-header">
+        <div>
+            <p class="ci-kicker">Quote detail</p>
+            <h2>@quoteCase.Quote.QuoteNumber</h2>
+            <p class="ci-muted">@quoteCase.Customer.FirstName @quoteCase.Customer.LastName • @quoteCase.Quote.Type • @FormatEnum(quoteCase.Status)</p>
+        </div>
+        <div class="ci-button-row wrap">
+            @if (quoteCase.Status == PortalQuoteStatus.Review)
+            {
+                <button type="button" class="btn-ci btn-primary-ci btn-sm-ci" @onclick="() => UpdateQuoteStatusAsync(PortalQuoteStatus.Approved)">Approve</button>
+                <button type="button" class="btn-ci btn-secondary-ci btn-sm-ci" @onclick="() => UpdateQuoteStatusAsync(PortalQuoteStatus.Declined)">Decline</button>
+            }
+            @if (quoteCase.Status == PortalQuoteStatus.Approved)
+            {
+                <button type="button" class="btn-ci btn-primary-ci btn-sm-ci" @onclick="ConvertToPolicyAsync">Convert to policy</button>
+            }
+            <a class="btn-ci btn-secondary-ci btn-sm-ci" href="/portal/quotes">Back to quotes</a>
+        </div>
+    </section>
+
+    <section class="ci-summary-grid">
+        <div><span>Premium</span><strong>@quoteCase.Quote.EstimatedPremium.ToString("C")</strong></div>
+        <div><span>Coverage</span><strong>@quoteCase.Quote.CoverageAmount.ToString("C")</strong></div>
+        <div><span>Underwriter</span><strong>@quoteCase.Underwriter</strong></div>
+        <div><span>Expires</span><strong>@quoteCase.Quote.ExpiresAt.ToString("MMM dd, yyyy")</strong></div>
+    </section>
+
+    <section class="ci-two-column-grid">
+        <article class="ci-panel">
+            <div class="ci-panel-header"><div><h3>Quote information</h3><p>Underwriting context and customer profile.</p></div></div>
+            <dl class="ci-detail-grid">
+                <div><dt>Risk summary</dt><dd>@quoteCase.RiskSummary</dd></div>
+                <div><dt>Generated policy</dt><dd>@(quoteCase.GeneratedPolicyNumber ?? "Not bound")</dd></div>
+                <div><dt>Customer</dt><dd>@quoteCase.Customer.FirstName @quoteCase.Customer.LastName</dd></div>
+                <div><dt>Email</dt><dd>@quoteCase.Customer.Email</dd></div>
+                <div><dt>Phone</dt><dd>@quoteCase.Customer.Phone</dd></div>
+                <div><dt>Address</dt><dd>@quoteCase.Customer.Address</dd></div>
+            </dl>
+        </article>
+
+        <article class="ci-panel">
+            <div class="ci-panel-header"><div><h3>Premium breakdown</h3><p>Base premium, risk load, fees, and discounts.</p></div></div>
+            <dl class="ci-detail-grid">
+                <div><dt>Base premium</dt><dd>@quoteCase.PremiumBreakdown.BasePremium.ToString("C")</dd></div>
+                <div><dt>Risk adjustment</dt><dd>@quoteCase.PremiumBreakdown.RiskAdjustment.ToString("C")</dd></div>
+                <div><dt>Taxes and fees</dt><dd>@quoteCase.PremiumBreakdown.TaxesAndFees.ToString("C")</dd></div>
+                <div><dt>Discount</dt><dd>@quoteCase.PremiumBreakdown.Discount.ToString("C")</dd></div>
+                <div><dt>Final premium</dt><dd>@quoteCase.PremiumBreakdown.FinalPremium.ToString("C")</dd></div>
+            </dl>
+            <div class="ci-inline-actions stack-on-mobile">
+                <InputNumber @bind-Value="overridePremium" />
+                <input @bind="overrideReason" placeholder="Override rationale" />
+                <button type="button" class="btn-ci btn-secondary-ci btn-sm-ci" @onclick="ApplyPremiumOverrideAsync">Apply premium override</button>
+            </div>
+        </article>
+    </section>
+
+    <section class="ci-two-column-grid">
+        <article class="ci-panel">
+            <div class="ci-panel-header"><div><h3>Workflow timeline</h3><p>Lifecycle from review to binding.</p></div></div>
+            <WorkflowTimeline Items="quoteCase.Timeline" />
+        </article>
+
+        <article class="ci-panel">
+            <div class="ci-panel-header"><div><h3>Underwriting notes</h3><p>Internal collaboration for underwriting and operations.</p></div></div>
+            <textarea @bind="newNote" rows="4" placeholder="Add an underwriting note"></textarea>
+            <button type="button" class="btn-ci btn-secondary-ci btn-sm-ci" @onclick="AddNoteAsync">Add note</button>
+            <div class="ci-notes-list">
+                @foreach (var note in quoteCase.Notes.OrderByDescending(note => note.CreatedAtUtc))
+                {
+                    <article class="ci-note-card">
+                        <strong>@note.Author</strong>
+                        <span>@note.CreatedAtUtc.ToLocalTime().ToString("MMM dd, h:mm tt")</span>
+                        <p>@note.Body</p>
+                    </article>
+                }
+            </div>
+        </article>
+    </section>
+}
+
+@code {
+    [Parameter]
+    public Guid Id { get; set; }
+
+    private QuoteCase? quoteCase;
+    private decimal? overridePremium;
+    private string overrideReason = string.Empty;
+    private string newNote = string.Empty;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        quoteCase = await PortalService.GetQuoteAsync(Id);
+        overridePremium = quoteCase?.Quote.EstimatedPremium;
+    }
+
+    private async Task UpdateQuoteStatusAsync(PortalQuoteStatus status)
+    {
+        if (quoteCase is null)
+        {
+            return;
+        }
+
+        await PortalService.SetQuoteStatusAsync(quoteCase.Quote.Id, status, await GetActorAsync());
+        quoteCase = await PortalService.GetQuoteAsync(Id);
+    }
+
+    private async Task ApplyPremiumOverrideAsync()
+    {
+        if (quoteCase is null || overridePremium is null || string.IsNullOrWhiteSpace(overrideReason))
+        {
+            return;
+        }
+
+        await PortalService.OverridePremiumAsync(quoteCase.Quote.Id, overridePremium.Value, overrideReason, await GetActorAsync());
+        quoteCase = await PortalService.GetQuoteAsync(Id);
+        overrideReason = string.Empty;
+    }
+
+    private async Task ConvertToPolicyAsync()
+    {
+        if (quoteCase is null)
+        {
+            return;
+        }
+
+        await PortalService.ConvertQuoteToPolicyAsync(quoteCase.Quote.Id, await GetActorAsync());
+        quoteCase = await PortalService.GetQuoteAsync(Id);
+    }
+
+    private async Task AddNoteAsync()
+    {
+        if (quoteCase is null || string.IsNullOrWhiteSpace(newNote))
+        {
+            return;
+        }
+
+        await PortalService.AddQuoteNoteAsync(quoteCase.Quote.Id, newNote, await GetActorAsync());
+        newNote = string.Empty;
+        quoteCase = await PortalService.GetQuoteAsync(Id);
+    }
+
+    private async Task<string> GetActorAsync()
+    {
+        var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        return authState.User.FindFirst("name")?.Value ?? authState.User.Identity?.Name ?? "Operations User";
+    }
+
+    private static string FormatEnum<TEnum>(TEnum value) where TEnum : struct, Enum => string.Concat(value.ToString().Select((character, index) => index > 0 && char.IsUpper(character) ? $" {character}" : character.ToString()));
+}

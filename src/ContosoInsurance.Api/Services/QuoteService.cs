@@ -1,11 +1,14 @@
 using ContosoInsurance.Api.DTOs;
+using ContosoInsurance.Api.Messaging;
 using ContosoInsurance.Data;
+using ContosoInsurance.Data.Enums;
 using ContosoInsurance.Data.Models;
+using ContosoInsurance.Messaging.Contracts;
 using Microsoft.EntityFrameworkCore;
 
 namespace ContosoInsurance.Api.Services;
 
-public class QuoteService(InsuranceDbContext db) : IQuoteService
+public class QuoteService(InsuranceDbContext db, IOutboxDispatcher outboxDispatcher) : IQuoteService
 {
     public async Task<PaginatedResponse<QuoteResponse>> GetQuotesAsync(Guid? customerId, int page, int pageSize)
     {
@@ -19,10 +22,19 @@ public class QuoteService(InsuranceDbContext db) : IQuoteService
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
             .Select(q => new QuoteResponse(
-                q.Id, q.QuoteNumber, q.Type,
-                q.EstimatedPremium, q.CoverageAmount,
-                q.IsAccepted, q.CreatedAt, q.ExpiresAt,
-                q.CustomerId, q.Customer.FirstName + " " + q.Customer.LastName))
+                q.Id,
+                q.QuoteNumber,
+                q.Type,
+                q.EstimatedPremium,
+                q.CoverageAmount,
+                q.IsAccepted,
+                q.CreatedAt,
+                q.ExpiresAt,
+                q.CustomerId,
+                q.Customer.FirstName + " " + q.Customer.LastName,
+                q.WorkflowCorrelationId,
+                db.QuoteProjections.Where(p => p.PublicQuoteId == q.Id).Select(p => p.PublicStatus).FirstOrDefault(),
+                db.QuoteProjections.Where(p => p.PublicQuoteId == q.Id).Select(p => (DateTime?)p.LastUpdatedAtUtc).FirstOrDefault()))
             .ToListAsync();
 
         return new PaginatedResponse<QuoteResponse>(items, totalCount, page, pageSize);
@@ -33,10 +45,19 @@ public class QuoteService(InsuranceDbContext db) : IQuoteService
         return await db.Quotes.AsNoTracking()
             .Where(q => q.Id == id)
             .Select(q => new QuoteResponse(
-                q.Id, q.QuoteNumber, q.Type,
-                q.EstimatedPremium, q.CoverageAmount,
-                q.IsAccepted, q.CreatedAt, q.ExpiresAt,
-                q.CustomerId, q.Customer.FirstName + " " + q.Customer.LastName))
+                q.Id,
+                q.QuoteNumber,
+                q.Type,
+                q.EstimatedPremium,
+                q.CoverageAmount,
+                q.IsAccepted,
+                q.CreatedAt,
+                q.ExpiresAt,
+                q.CustomerId,
+                q.Customer.FirstName + " " + q.Customer.LastName,
+                q.WorkflowCorrelationId,
+                db.QuoteProjections.Where(p => p.PublicQuoteId == q.Id).Select(p => p.PublicStatus).FirstOrDefault(),
+                db.QuoteProjections.Where(p => p.PublicQuoteId == q.Id).Select(p => (DateTime?)p.LastUpdatedAtUtc).FirstOrDefault()))
             .FirstOrDefaultAsync();
     }
 
@@ -51,8 +72,10 @@ public class QuoteService(InsuranceDbContext db) : IQuoteService
         var quote = new Quote
         {
             Id = Guid.NewGuid(),
+            WorkflowCorrelationId = Guid.NewGuid(),
             QuoteNumber = $"QTE-{DateTime.UtcNow:yyyyMMdd}-{Guid.NewGuid().ToString()[..8].ToUpperInvariant()}",
             Type = request.Type,
+            Status = QuoteStatus.Requested,
             EstimatedPremium = premium,
             CoverageAmount = request.CoverageAmount,
             IsAccepted = false,
@@ -62,7 +85,20 @@ public class QuoteService(InsuranceDbContext db) : IQuoteService
         };
 
         db.Quotes.Add(quote);
+        db.OutboxMessages.Add(OutboxMessageFactory.Create(
+            MessagingTopology.CommandsExchange,
+            RoutingKeys.QuoteRequestedV1,
+            MessageTypes.QuoteRequested,
+            "public-api",
+            "private",
+            "quote",
+            quote.Id.ToString(),
+            quote.WorkflowCorrelationId,
+            null,
+            new QuoteRequestedEvent(quote.Id, quote.WorkflowCorrelationId, quote.QuoteNumber, quote.CustomerId, quote.Type.ToString(), quote.CoverageAmount, quote.EstimatedPremium, quote.CreatedAt)));
+
         await db.SaveChangesAsync();
+        await outboxDispatcher.DispatchPendingAsync();
 
         var customerName = await db.Customers
             .Where(c => c.Id == request.CustomerId)
@@ -70,10 +106,17 @@ public class QuoteService(InsuranceDbContext db) : IQuoteService
             .FirstAsync();
 
         return new QuoteResponse(
-            quote.Id, quote.QuoteNumber, quote.Type,
-            quote.EstimatedPremium, quote.CoverageAmount,
-            quote.IsAccepted, quote.CreatedAt, quote.ExpiresAt,
-            quote.CustomerId, customerName);
+            quote.Id,
+            quote.QuoteNumber,
+            quote.Type,
+            quote.EstimatedPremium,
+            quote.CoverageAmount,
+            quote.IsAccepted,
+            quote.CreatedAt,
+            quote.ExpiresAt,
+            quote.CustomerId,
+            customerName,
+            quote.WorkflowCorrelationId);
     }
 
     public async Task<QuoteResponse?> AcceptQuoteAsync(Guid id)
@@ -88,8 +131,12 @@ public class QuoteService(InsuranceDbContext db) : IQuoteService
             throw new InvalidOperationException("Quote has expired and cannot be accepted.");
 
         quote.IsAccepted = true;
-        await db.SaveChangesAsync();
+        if (quote.Status == QuoteStatus.Requested)
+        {
+            quote.Status = QuoteStatus.Approved;
+        }
 
+        await db.SaveChangesAsync();
         return await GetQuoteByIdAsync(id);
     }
 }

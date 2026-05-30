@@ -1,4 +1,5 @@
 using ContosoInsurance.Api.Endpoints;
+using ContosoInsurance.Api.Messaging;
 using ContosoInsurance.Api.Middleware;
 using ContosoInsurance.Api.Services;
 using ContosoInsurance.Data;
@@ -18,9 +19,13 @@ builder.Services.AddScoped<ICustomerService, CustomerService>();
 builder.Services.AddScoped<IPolicyService, PolicyService>();
 builder.Services.AddScoped<IClaimService, ClaimService>();
 builder.Services.AddScoped<IQuoteService, QuoteService>();
+builder.Services.AddScoped<IOutboxDispatcher, RabbitMqOutboxDispatcher>();
 
 // Middleware
 builder.Services.AddTransient<GlobalExceptionHandler>();
+builder.Services.AddHostedService<RabbitMqTopologyInitializer>();
+builder.Services.AddHostedService<OutboxPublisherService>();
+builder.Services.AddHealthChecks().AddCheck<RabbitMqConnectionHealthCheck>("rabbitmq", tags: ["ready"]);
 
 // CORS — allow the Web frontend
 builder.Services.AddCors(options =>
