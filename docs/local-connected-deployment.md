@@ -8,8 +8,38 @@ Use this guide with the **Azure Local Jumpstart** sandbox to demonstrate hybrid 
 
 ## Prerequisites
 
+### Azure Local — Jumpstart LocalBox (required)
+
+> **⚠️ You must deploy Azure Local before deploying this branch.**
+
+The Azure Local environment is provided by **[Jumpstart LocalBox](https://jumpstart.azure.com/azure_jumpstart_localbox)** — a turnkey deployment that simulates a 2-node Azure Local cluster with AKS Arc using nested Hyper-V virtualization.
+
+**Deploy LocalBox:**
+- [Jumpstart LocalBox — Azure Bicep deployment](https://jumpstart.azure.com/azure_jumpstart_localbox/deployment_az)
+- Source: [microsoft/azure_arc](https://github.com/microsoft/azure_arc)
+
+```bash
+# Clone the azure_arc repository and deploy LocalBox
+git clone https://github.com/microsoft/azure_arc.git
+cd azure_arc/azure_jumpstart_localbox
+
+az group create --name rg-localbox --location eastus2
+az deployment group create \
+  --resource-group rg-localbox \
+  --template-file bicep/main.bicep \
+  --parameters windowsAdminUsername="arcdemo" \
+               tenantId="$(az account show --query tenantId -o tsv)" \
+               subscriptionId="$(az account show --query id -o tsv)"
+```
+
+After deployment (45–90 min), you will have:
+- AKS Arc cluster: `localbox-aks`
+- Logical network: `10.10.0.0/24`
+- Management VM: `LocalBox-Client`
+
+### Additional requirements
+
 - Azure subscription with permissions to register resource providers, assign RBAC, create Azure Arc resources, and use Azure Container Registry.
-- Azure Local Jumpstart sandbox prepared from: <https://azurearcjumpstart.com/azure_jumpstart_local>
 - Azure CLI with these extensions available on the operator workstation:
   - `connectedk8s`
   - `k8s-extension`
@@ -91,11 +121,16 @@ $env:CONTOSO_BACKEND_PORTAL_CLIENT_SECRET = '<entra-app-secret>'
 
 ## Step-by-step deployment guide
 
-### Step 1: Set up Azure Local Jumpstart sandbox
+### Step 1: Deploy Jumpstart LocalBox
 
-1. Start the Azure Local Jumpstart scenario and wait for the sandbox bootstrap to finish.
-2. Confirm that the Azure Local cluster, AKS Arc cluster, and Arc-enabled Kubernetes connection are reachable from the jump box.
-3. Clone this repository and switch to `local-connected`.
+1. Follow the **Prerequisites** section above to deploy LocalBox and get your AKS Arc cluster.
+2. RDP into `LocalBox-Client` and verify the AKS Arc cluster is ready:
+   ```powershell
+   az login --use-device-code --tenant $env:tenantId
+   az connectedk8s proxy -n localbox-aks -g $env:resourceGroup
+   kubectl get nodes  # Should show cluster nodes in Ready state
+   ```
+3. Clone this repository on `LocalBox-Client` and switch to `local-connected`.
 
 ### Step 2: Configure AKS Arc on the Azure Local cluster
 
@@ -209,7 +244,9 @@ Connected mode keeps these Azure-backed capabilities active even though workload
 
 ## References
 
-- Azure Local Jumpstart: <https://azurearcjumpstart.com/azure_jumpstart_local>
-- AKS on Azure Local: <https://learn.microsoft.com/en-us/azure/aks/hybrid/>
-- Arc-enabled Kubernetes: <https://learn.microsoft.com/en-us/azure/azure-arc/kubernetes/>
-- Arc-enabled SQL: <https://learn.microsoft.com/en-us/azure/azure-arc/data/>
+- [Azure Jumpstart LocalBox](https://jumpstart.azure.com/azure_jumpstart_localbox) — Deploy Azure Local without hardware
+- [LocalBox Bicep Deployment](https://jumpstart.azure.com/azure_jumpstart_localbox/deployment_az) — Step-by-step guide
+- [microsoft/azure_arc](https://github.com/microsoft/azure_arc) — Source repository for Jumpstart scenarios
+- [AKS on Azure Local](https://learn.microsoft.com/azure/aks/hybrid/aks-overview) — AKS Arc documentation
+- [Azure Arc-enabled Kubernetes](https://learn.microsoft.com/azure/azure-arc/kubernetes/overview) — Arc K8s overview
+- [Arc-enabled SQL](https://learn.microsoft.com/azure/azure-arc/data/) — Arc data services
