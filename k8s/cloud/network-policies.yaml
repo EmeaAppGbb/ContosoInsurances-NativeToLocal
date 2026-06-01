@@ -1,0 +1,109 @@
+# Network Policies — Cloud cluster (zero-trust)
+# Only web frontend and public API run here.
+# Public API must reach on-prem RabbitMQ/SQL via VPN/ExpressRoute.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: contoso-insurance
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-webfrontend
+  namespace: contoso-insurance
+spec:
+  podSelector:
+    matchLabels:
+      app: webfrontend
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - ports:
+        - port: 8080
+          protocol: TCP
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: publicapi
+      ports:
+        - port: 8080
+          protocol: TCP
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-publicapi
+  namespace: contoso-insurance
+spec:
+  podSelector:
+    matchLabels:
+      app: publicapi
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: webfrontend
+      ports:
+        - port: 8080
+          protocol: TCP
+  egress:
+    # Allow reaching on-prem RabbitMQ via VPN/ExpressRoute (private endpoint)
+    - to:
+        - ipBlock:
+            cidr: 10.1.0.0/16
+      ports:
+        - port: 5672
+          protocol: TCP
+    # Allow reaching on-prem SQL via VPN/ExpressRoute (private endpoint)
+    - to:
+        - ipBlock:
+            cidr: 10.1.0.0/16
+      ports:
+        - port: 1433
+          protocol: TCP
+    # Azure IMDS for managed identity
+    - to:
+        - ipBlock:
+            cidr: 169.254.169.254/32
+      ports:
+        - port: 80
+          protocol: TCP
+    # Azure AD and App Insights telemetry
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - port: 443
+          protocol: TCP
+    # DNS
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP

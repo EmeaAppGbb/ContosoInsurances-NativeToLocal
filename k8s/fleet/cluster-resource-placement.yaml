@@ -1,0 +1,58 @@
+# ============================================================================
+# Azure Kubernetes Fleet Manager — Cluster Resource Placement
+# ============================================================================
+# Fleet Manager orchestrates workload placement across the hybrid topology.
+# Uses PickFixed scheduling to deterministically place workloads on the
+# correct cluster based on data sensitivity requirements.
+#
+# Cluster labels expected:
+#   contoso.io/cluster-role: cloud   (Azure public AKS)
+#   contoso.io/cluster-role: local   (Azure Local AKS)
+# ============================================================================
+
+# Place public-facing workloads on the cloud cluster
+apiVersion: placement.kubernetes-fleet.io/v1
+kind: ClusterResourcePlacement
+metadata:
+  name: contoso-cloud-workloads
+spec:
+  resourceSelectors:
+    - group: ""
+      version: v1
+      kind: Namespace
+      labelSelector:
+        matchLabels:
+          contoso.io/cluster-role: cloud
+  policy:
+    placementType: PickFixed
+    clusterNames:
+      - aks-cloud
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+
+---
+# Place private/sensitive workloads on the Azure Local cluster
+apiVersion: placement.kubernetes-fleet.io/v1
+kind: ClusterResourcePlacement
+metadata:
+  name: contoso-local-workloads
+spec:
+  resourceSelectors:
+    - group: ""
+      version: v1
+      kind: Namespace
+      labelSelector:
+        matchLabels:
+          contoso.io/cluster-role: local
+  policy:
+    placementType: PickFixed
+    clusterNames:
+      - aks-local
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1

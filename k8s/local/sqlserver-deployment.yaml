@@ -1,0 +1,188 @@
+# SQL Server — Azure Local cluster (data stays on-premises)
+# ============================================================================
+# HYBRID: SQL Server runs on-premises for data sovereignty. All sensitive
+# insurance data (claims, policies, customer PII) remains in the local
+# environment and never traverses the public internet.
+#
+# NOTE: This is a demo/lab deployment using a containerized SQL Server.
+# In production, consider:
+#   - SQL Server on dedicated VMs with Always On AG
+#   - SQL Managed Instance enabled by Azure Arc
+#   - Proper backup/restore strategies and TDE encryption
+# ============================================================================
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: sqlserver
+  namespace: contoso-insurance
+  labels:
+    app: sqlserver
+    app.kubernetes.io/part-of: contoso-insurance
+    contoso.io/cluster-role: local
+spec:
+  serviceName: sqlserver
+  replicas: 1
+  selector:
+    matchLabels:
+      app: sqlserver
+  template:
+    metadata:
+      labels:
+        app: sqlserver
+    spec:
+      containers:
+        - name: sqlserver
+          image: mcr.microsoft.com/mssql/server:2022-latest
+          ports:
+            - containerPort: 1433
+              name: sql
+          env:
+            - name: ACCEPT_EULA
+              value: "Y"
+            - name: MSSQL_SA_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: contoso-secrets-sql
+                  key: SA_PASSWORD
+            - name: MSSQL_PID
+              value: "Developer"
+          volumeMounts:
+            - name: sqlserver-data
+              mountPath: /var/opt/mssql
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "2Gi"
+            limits:
+              cpu: "2000m"
+              memory: "4Gi"
+          livenessProbe:
+            exec:
+              command:
+                - /opt/mssql-tools18/bin/sqlcmd
+                - -S
+                - localhost
+                - -U
+                - sa
+                - -C
+                - -Q
+                - "SELECT 1"
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 5
+          readinessProbe:
+            exec:
+              command:
+                - /opt/mssql-tools18/bin/sqlcmd
+                - -S
+                - localhost
+                - -U
+                - sa
+                - -C
+                - -Q
+                - "SELECT 1"
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 10
+  volumeClaimTemplates:
+    - metadata:
+        name: sqlserver-data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 20Gi
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: contoso-secrets-sql
+  namespace: contoso-insurance
+type: Opaque
+stringData:
+  SA_PASSWORD: "__SQL_SA_PASSWORD__"
+---
+# Internal ClusterIP for local workloads
+apiVersion: v1
+kind: Service
+metadata:
+  name: sqlserver
+  namespace: contoso-insurance
+spec:
+  type: ClusterIP
+  selector:
+    app: sqlserver
+  ports:
+    - port: 1433
+      targetPort: 1433
+      protocol: TCP
+      name: sql
+---
+# Internal LoadBalancer — exposes SQL to cloud cluster via VPN/ExpressRoute
+apiVersion: v1
+kind: Service
+metadata:
+  name: sqlserver-vpn
+  namespace: contoso-insurance
+  annotations:
+    service.beta.kubernetes.io/azure-load-balancer-internal: "true"
+spec:
+  type: LoadBalancer
+  selector:
+    app: sqlserver
+  ports:
+    - port: 1433
+      targetPort: 1433
+      protocol: TCP
+      name: sql
+---
+# Database initialization job
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: sqlserver-init
+  namespace: contoso-insurance
+  labels:
+    app: sqlserver-init
+    app.kubernetes.io/part-of: contoso-insurance
+spec:
+  template:
+    spec:
+      restartPolicy: OnFailure
+      initContainers:
+        - name: wait-for-sql
+          image: mcr.microsoft.com/mssql/server:2022-latest
+          command:
+            - /bin/bash
+            - -c
+            - |
+              until /opt/mssql-tools18/bin/sqlcmd -S sqlserver -U sa -P "$SA_PASSWORD" -C -Q "SELECT 1" &>/dev/null; do
+                echo "Waiting for SQL Server..."
+                sleep 5
+              done
+          env:
+            - name: SA_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: contoso-secrets-sql
+                  key: SA_PASSWORD
+      containers:
+        - name: init-db
+          image: mcr.microsoft.com/mssql/server:2022-latest
+          command:
+            - /opt/mssql-tools18/bin/sqlcmd
+            - -S
+            - sqlserver
+            - -U
+            - sa
+            - -C
+            - -Q
+            - "IF NOT EXISTS (SELECT * FROM sys.databases WHERE name = 'insurancedb') CREATE DATABASE insurancedb;"
+          env:
+            - name: SA_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: contoso-secrets-sql
+                  key: SA_PASSWORD

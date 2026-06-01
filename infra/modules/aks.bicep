@@ -171,6 +171,7 @@ resource acrPullRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
 // ---------------------------------------------------------------------------
 
 output clusterName string = aks.name
+output clusterId string = aks.id
 output clusterFqdn string = aks.properties.fqdn
 output kubeletIdentityObjectId string = aks.properties.identityProfile.kubeletidentity.objectId
 output kubeletIdentityClientId string = aks.properties.identityProfile.kubeletidentity.clientId

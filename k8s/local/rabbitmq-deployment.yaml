@@ -1,0 +1,137 @@
+# RabbitMQ — Azure Local cluster (messaging stays on-premises)
+# ============================================================================
+# HYBRID: RabbitMQ runs on-premises to ensure message data containing
+# sensitive insurance claims never leaves the local environment.
+# An internal LoadBalancer exposes it to the cloud cluster via VPN/ExpressRoute.
+# ============================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: rabbitmq-config
+  namespace: contoso-insurance
+data:
+  rabbitmq.conf: |
+    listeners.tcp.default = 5672
+    management.tcp.port = 15672
+    management.tcp.ip = 0.0.0.0
+    loopback_users.guest = false
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: rabbitmq
+  namespace: contoso-insurance
+  labels:
+    app: rabbitmq
+    app.kubernetes.io/part-of: contoso-insurance
+    contoso.io/cluster-role: local
+spec:
+  serviceName: rabbitmq
+  replicas: 1
+  selector:
+    matchLabels:
+      app: rabbitmq
+  template:
+    metadata:
+      labels:
+        app: rabbitmq
+    spec:
+      containers:
+        - name: rabbitmq
+          image: rabbitmq:3-management-alpine
+          ports:
+            - containerPort: 5672
+              name: amqp
+            - containerPort: 15672
+              name: management
+          env:
+            - name: RABBITMQ_DEFAULT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: contoso-secrets
+                  key: RABBITMQ_USERNAME
+            - name: RABBITMQ_DEFAULT_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: contoso-secrets
+                  key: RABBITMQ_PASSWORD
+          volumeMounts:
+            - name: rabbitmq-config
+              mountPath: /etc/rabbitmq/rabbitmq.conf
+              subPath: rabbitmq.conf
+            - name: rabbitmq-data
+              mountPath: /var/lib/rabbitmq
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          livenessProbe:
+            exec:
+              command: ["rabbitmq-diagnostics", "check_port_connectivity"]
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 5
+          readinessProbe:
+            exec:
+              command: ["rabbitmq-diagnostics", "check_port_connectivity"]
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 10
+      volumes:
+        - name: rabbitmq-config
+          configMap:
+            name: rabbitmq-config
+            items:
+              - key: rabbitmq.conf
+                path: rabbitmq.conf
+  volumeClaimTemplates:
+    - metadata:
+        name: rabbitmq-data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 10Gi
+---
+# Internal ClusterIP for local workloads
+apiVersion: v1
+kind: Service
+metadata:
+  name: rabbitmq
+  namespace: contoso-insurance
+spec:
+  type: ClusterIP
+  selector:
+    app: rabbitmq
+  ports:
+    - port: 5672
+      targetPort: 5672
+      protocol: TCP
+      name: amqp
+    - port: 15672
+      targetPort: 15672
+      protocol: TCP
+      name: management
+---
+# Internal LoadBalancer — exposes RabbitMQ to cloud cluster via VPN/ExpressRoute
+apiVersion: v1
+kind: Service
+metadata:
+  name: rabbitmq-vpn
+  namespace: contoso-insurance
+  annotations:
+    service.beta.kubernetes.io/azure-load-balancer-internal: "true"
+spec:
+  type: LoadBalancer
+  selector:
+    app: rabbitmq
+  ports:
+    - port: 5672
+      targetPort: 5672
+      protocol: TCP
+      name: amqp

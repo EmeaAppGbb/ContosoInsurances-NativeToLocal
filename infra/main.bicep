@@ -1,8 +1,12 @@
 // ============================================================================
-// Contoso Insurance — Main Bicep Orchestration
-// Deploys all Azure infrastructure for the Contoso Insurance application.
-// Architecture: AKS-hosted .NET Aspire app with private networking.
-// Only the Web frontend is internet-accessible via AGC (Application Gateway for Containers).
+// Contoso Insurance — Main Bicep Orchestration (Hybrid Topology)
+// Deploys Azure infrastructure for the hybrid split deployment:
+//   - Cloud AKS: web frontend + public API (internet-facing via AGC)
+//   - Azure Local AKS: backend, workers, RabbitMQ, SQL (on-premises)
+//   - Fleet Manager: unified management across both clusters
+//
+// Cross-cluster connectivity: VPN/ExpressRoute between cloud VNet and
+// Azure Local network. Public API reaches on-prem services via private endpoints.
 //
 // MIGRATION (April 2026):
 //   - App Gateway WAF v2 → AGC (AGIC retired March 2026)
@@ -47,6 +51,9 @@ param acrSku string = 'Premium'
 
 @description('Whether to deploy AKS as a private cluster. Defaults to false for the learning lab scenario.')
 param enablePrivateCluster bool = false
+
+@description('Resource ID of the Azure Local AKS cluster (Arc-enabled). Provide when joining to Fleet.')
+param localAksClusterResourceId string = ''
 
 // ---------------------------------------------------------------------------
 // Variables
@@ -179,6 +186,20 @@ module appgateway 'modules/appgateway.bicep' = {
   }
 }
 
+// Azure Kubernetes Fleet Manager — unified management for hybrid topology
+// Manages both the cloud AKS cluster and the Azure Local AKS cluster.
+module fleet 'modules/fleet.bicep' = {
+  name: 'fleet'
+  scope: rg
+  params: {
+    location: location
+    resourceToken: resourceToken
+    tags: tags
+    cloudAksClusterId: aks.outputs.clusterId
+    localAksClusterId: localAksClusterResourceId
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Outputs (consumed by AZD and CI/CD)
 // ---------------------------------------------------------------------------
@@ -197,3 +218,5 @@ output AZURE_SQL_SERVER_FQDN string = sql.outputs.serverFqdn
 // AGC manages its own public endpoint; use the FQDN for DNS CNAME records.
 output AZURE_AGC_FRONTEND_FQDN string = appgateway.outputs.frontendFqdn
 output AZURE_AGC_RESOURCE_ID string = appgateway.outputs.trafficControllerId
+output AZURE_FLEET_NAME string = fleet.outputs.fleetName
+output AZURE_FLEET_HUB_FQDN string = fleet.outputs.fleetHubFqdn

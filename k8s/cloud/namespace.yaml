@@ -1,0 +1,37 @@
+# Cloud cluster namespace and configuration
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: contoso-insurance
+  labels:
+    app.kubernetes.io/part-of: contoso-insurance
+    app.kubernetes.io/managed-by: fleet
+    contoso.io/cluster-role: cloud
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: contoso-config
+  namespace: contoso-insurance
+data:
+  ASPNETCORE_ENVIRONMENT: "Production"
+  APPLICATIONINSIGHTS_CONNECTION_STRING: "__APPINSIGHTS_CONNECTION_STRING__"
+  # Public API connects to on-prem RabbitMQ/SQL via VPN/ExpressRoute private endpoints
+  ApiBaseUrl: "http://publicapi:8080"
+  RabbitMQ__HostName: "__RABBITMQ_PRIVATE_ENDPOINT__"
+  RabbitMQ__Port: "5672"
+  RabbitMQ__VirtualHost: "/"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: contoso-secrets
+  namespace: contoso-insurance
+type: Opaque
+stringData:
+  SQL_CONNECTION_STRING: "__SQL_CONNECTION_STRING__"
+  RABBITMQ_USERNAME: "guest"
+  RABBITMQ_PASSWORD: "__RABBITMQ_PASSWORD__"
+  RABBITMQ_CONNECTION_STRING: "amqp://guest:__RABBITMQ_PASSWORD__@__RABBITMQ_PRIVATE_ENDPOINT__:5672"
+  RabbitMQ__UserName: "guest"
+  RabbitMQ__Password: "__RABBITMQ_PASSWORD__"

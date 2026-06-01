@@ -1,0 +1,256 @@
+# Network Policies — Azure Local cluster (zero-trust)
+# All sensitive workloads run here: backend, workers, messaging, database.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: contoso-insurance
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-backendportal
+  namespace: contoso-insurance
+spec:
+  podSelector:
+    matchLabels:
+      app: backendportal
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Accessible from internal network (VPN users)
+    - ports:
+        - port: 8080
+          protocol: TCP
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: backendapi
+      ports:
+        - port: 8080
+          protocol: TCP
+    # Azure AD for authentication
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - port: 443
+          protocol: TCP
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-backendapi
+  namespace: contoso-insurance
+spec:
+  podSelector:
+    matchLabels:
+      app: backendapi
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: backendportal
+      ports:
+        - port: 8080
+          protocol: TCP
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: rabbitmq
+      ports:
+        - port: 5672
+          protocol: TCP
+    - to:
+        - podSelector:
+            matchLabels:
+              app: sqlserver
+      ports:
+        - port: 1433
+          protocol: TCP
+    # Azure AD
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - port: 443
+          protocol: TCP
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-workers
+  namespace: contoso-insurance
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app
+        operator: In
+        values: [worker-claims, worker-quotes, worker-projections]
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress: []
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: rabbitmq
+      ports:
+        - port: 5672
+          protocol: TCP
+    - to:
+        - podSelector:
+            matchLabels:
+              app: sqlserver
+      ports:
+        - port: 1433
+          protocol: TCP
+    # App Insights telemetry
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - port: 443
+          protocol: TCP
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-rabbitmq
+  namespace: contoso-insurance
+spec:
+  podSelector:
+    matchLabels:
+      app: rabbitmq
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # From local workloads
+    - from:
+        - podSelector:
+            matchLabels:
+              app: backendapi
+        - podSelector:
+            matchLabels:
+              app: worker-claims
+        - podSelector:
+            matchLabels:
+              app: worker-quotes
+        - podSelector:
+            matchLabels:
+              app: worker-projections
+      ports:
+        - port: 5672
+          protocol: TCP
+    # From cloud Public API via VPN (internal LoadBalancer traffic)
+    - ports:
+        - port: 5672
+          protocol: TCP
+    # Management UI (local access only)
+    - from:
+        - podSelector: {}
+      ports:
+        - port: 15672
+          protocol: TCP
+  egress:
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-sqlserver
+  namespace: contoso-insurance
+spec:
+  podSelector:
+    matchLabels:
+      app: sqlserver
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # From local workloads
+    - from:
+        - podSelector:
+            matchLabels:
+              app: backendapi
+        - podSelector:
+            matchLabels:
+              app: worker-claims
+        - podSelector:
+            matchLabels:
+              app: worker-quotes
+        - podSelector:
+            matchLabels:
+              app: worker-projections
+      ports:
+        - port: 1433
+          protocol: TCP
+    # From cloud Public API via VPN (internal LoadBalancer traffic)
+    - ports:
+        - port: 1433
+          protocol: TCP
+  egress:
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP

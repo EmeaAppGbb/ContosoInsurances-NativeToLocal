@@ -1,0 +1,30 @@
+# ============================================================================
+# Fleet Manager — Member Cluster Definitions
+# ============================================================================
+# These resources represent the member clusters in the fleet.
+# In practice, clusters are joined to the fleet via:
+#   az fleet member create --fleet-name <fleet> --member-cluster-id <aks-resource-id>
+#
+# This file documents the expected cluster configuration for the hybrid topology.
+# ============================================================================
+
+# Cloud AKS cluster member
+apiVersion: cluster.kubernetes-fleet.io/v1
+kind: MemberCluster
+metadata:
+  name: aks-cloud
+  labels:
+    contoso.io/cluster-role: cloud
+    contoso.io/environment: production
+    azure.io/region: eastus2
+
+---
+# Azure Local AKS cluster member
+apiVersion: cluster.kubernetes-fleet.io/v1
+kind: MemberCluster
+metadata:
+  name: aks-local
+  labels:
+    contoso.io/cluster-role: local
+    contoso.io/environment: production
+    azure.io/region: on-premises

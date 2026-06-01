@@ -1,0 +1,120 @@
+# Web Frontend — the ONLY internet-accessible service (runs on cloud cluster)
+# ============================================================================
+# HYBRID: The web frontend remains in Azure public cloud for customer access.
+# It connects to the Public API (also on cloud cluster), which in turn reaches
+# on-prem services via VPN/ExpressRoute private endpoints.
+# ============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: webfrontend
+  namespace: contoso-insurance
+  labels:
+    app: webfrontend
+    app.kubernetes.io/part-of: contoso-insurance
+    contoso.io/cluster-role: cloud
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: webfrontend
+  template:
+    metadata:
+      labels:
+        app: webfrontend
+    spec:
+      containers:
+        - name: webfrontend
+          image: __ACR_LOGIN_SERVER__/contoso-insurance/webfrontend:__TAG__
+          ports:
+            - containerPort: 8080
+          env:
+            - name: ASPNETCORE_URLS
+              value: "http://+:8080"
+            - name: ASPNETCORE_FORWARDEDHEADERS_ENABLED
+              value: "true"
+            - name: ASPNETCORE_ENVIRONMENT
+              valueFrom:
+                configMapKeyRef:
+                  name: contoso-config
+                  key: ASPNETCORE_ENVIRONMENT
+            - name: ApiBaseUrl
+              valueFrom:
+                configMapKeyRef:
+                  name: contoso-config
+                  key: ApiBaseUrl
+            - name: APPLICATIONINSIGHTS_CONNECTION_STRING
+              valueFrom:
+                configMapKeyRef:
+                  name: contoso-config
+                  key: APPLICATIONINSIGHTS_CONNECTION_STRING
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          livenessProbe:
+            httpGet:
+              path: /alive
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            timeoutSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            timeoutSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: webfrontend-service
+  namespace: contoso-insurance
+spec:
+  type: ClusterIP
+  selector:
+    app: webfrontend
+  ports:
+    - port: 8080
+      targetPort: 8080
+      protocol: TCP
+---
+# Gateway API Resources — AGC external ingress
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: contoso-gateway
+  namespace: contoso-insurance
+  annotations:
+    alb.networking.azure.io/alb-id: __AGC_RESOURCE_ID__
+spec:
+  gatewayClassName: azure-alb-external
+  listeners:
+    - name: http
+      port: 80
+      protocol: HTTP
+      allowedRoutes:
+        namespaces:
+          from: Same
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: webfrontend-route
+  namespace: contoso-insurance
+spec:
+  parentRefs:
+    - name: contoso-gateway
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: webfrontend-service
+          port: 8080
