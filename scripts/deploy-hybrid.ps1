@@ -2,10 +2,17 @@
 # ============================================================================
 # Contoso Insurance — Hybrid Deployment Script
 # Deploys workloads to both the cloud AKS cluster and Azure Local AKS cluster.
-# Requires:
+#
+# Prerequisites:
 #   - az CLI authenticated
 #   - kubectl configured
+#   - Azure Local deployed via Jumpstart LocalBox (https://jumpstart.azure.com/azure_jumpstart_localbox)
 #   - VPN/ExpressRoute connectivity between cloud VNet and Azure Local network
+#   - AKS Arc cluster (localbox-aks) registered with Azure Arc
+#
+# References:
+#   - LocalBox deployment: https://jumpstart.azure.com/azure_jumpstart_localbox/deployment_az
+#   - azure_arc repo: https://github.com/microsoft/azure_arc
 # ============================================================================
 
 param(
@@ -15,8 +22,8 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$CloudClusterName,
 
-    [Parameter(Mandatory = $true)]
-    [string]$LocalClusterName,
+    [Parameter(Mandatory = $false)]
+    [string]$LocalClusterName = "localbox-aks",
 
     [Parameter(Mandatory = $true)]
     [string]$ResourceGroup,
@@ -25,7 +32,10 @@ param(
     [string]$LocalResourceGroup = $ResourceGroup,
 
     [Parameter(Mandatory = $false)]
-    [string]$Tag = "latest"
+    [string]$Tag = "latest",
+
+    [Parameter(Mandatory = $false)]
+    [switch]$UseArcProxy
 )
 
 $ErrorActionPreference = "Stop"
@@ -102,8 +112,15 @@ Write-Host "  Cloud workloads deployed ✓" -ForegroundColor Green
 # ---------------------------------------------------------------------------
 # Deploy to Azure Local AKS cluster
 # ---------------------------------------------------------------------------
-Write-Host "`n[4/8] Connecting to Azure Local AKS cluster..." -ForegroundColor Yellow
-az aks get-credentials --resource-group $LocalResourceGroup --name $LocalClusterName --overwrite-existing
+Write-Host "`n[4/8] Connecting to Azure Local AKS cluster ($LocalClusterName)..." -ForegroundColor Yellow
+if ($UseArcProxy) {
+    # For Jumpstart LocalBox: connect via Azure Arc proxy
+    Write-Host "  Using Arc proxy to connect to $LocalClusterName" -ForegroundColor DarkGray
+    az connectedk8s proxy -n $LocalClusterName -g $LocalResourceGroup &
+    Start-Sleep -Seconds 10
+} else {
+    az aks get-credentials --resource-group $LocalResourceGroup --name $LocalClusterName --overwrite-existing
+}
 
 Write-Host "`n[5/8] Deploying local workloads..." -ForegroundColor Yellow
 

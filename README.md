@@ -128,15 +128,43 @@ Fleet manifests are in `k8s/fleet/`.
 
 ## Prerequisites
 
-1. **Azure subscription** with permissions to create AKS, ACR, Fleet Manager, VPN Gateway
-2. **Azure Local** environment with AKS enabled (Arc-connected)
-3. **VPN/ExpressRoute** connectivity between Azure VNet and Azure Local network
-4. **Azure CLI** (`az`) with `fleet`, `connectedk8s`, and `aks` extensions
-5. **kubectl** configured for both clusters
+### 1. Azure Local — Jumpstart LocalBox (required)
+
+> **⚠️ You must deploy Azure Local before deploying this branch.**
+
+The Azure Local cluster is provided by **[Jumpstart LocalBox](https://jumpstart.azure.com/azure_jumpstart_localbox)** — a turnkey deployment that simulates a 2-node Azure Local cluster with AKS Arc using nested Hyper-V.
+
+👉 **[Full setup guide: docs/azure-local-prerequisites.md](docs/azure-local-prerequisites.md)**
+
+Quick links:
+- [Jumpstart LocalBox](https://jumpstart.azure.com/azure_jumpstart_localbox)
+- [LocalBox Bicep Deployment](https://jumpstart.azure.com/azure_jumpstart_localbox/deployment_az)
+- [microsoft/azure_arc repository](https://github.com/microsoft/azure_arc)
+
+After deploying LocalBox you will have:
+- An AKS Arc cluster (`localbox-aks`) registered with Azure Arc
+- A logical network (`10.10.0.0/24`) for workload connectivity
+- A management VM (`LocalBox-Client`) with kubectl and az CLI pre-installed
+
+### 2. Additional prerequisites
+
+- **Azure subscription** with permissions to create AKS, ACR, Fleet Manager, VPN Gateway
+- **VPN/ExpressRoute** connectivity between Azure cloud VNet and the LocalBox logical network
+- **Azure CLI** (`az`) with `fleet`, `connectedk8s`, `aksarc` extensions
+- **kubectl** configured for both clusters
 
 ## Deployment
 
-### 1. Provision infrastructure
+### 1. Deploy Azure Local (Jumpstart LocalBox)
+
+Follow **[docs/azure-local-prerequisites.md](docs/azure-local-prerequisites.md)** to deploy LocalBox. This takes 45–90 minutes and gives you the `localbox-aks` AKS Arc cluster.
+
+Get the cluster resource ID after deployment:
+```bash
+az connectedk8s show -n localbox-aks -g <localbox-rg> --query id -o tsv
+```
+
+### 2. Provision cloud infrastructure
 
 ```bash
 # Deploy cloud infrastructure (AKS, ACR, AGC, Fleet Manager)
@@ -147,30 +175,31 @@ az deployment sub create \
   --location eastus2 \
   --template-file infra/main.bicep \
   --parameters environmentName=dev location=eastus2 \
-               localAksClusterResourceId=<your-azure-local-aks-id>
+               localAksClusterResourceId=$(az connectedk8s show -n localbox-aks -g <localbox-rg> --query id -o tsv)
 ```
 
-### 2. Configure VPN/ExpressRoute
+### 3. Configure VPN/ExpressRoute
 
 Ensure private connectivity between the cloud VNet and Azure Local network.
 Note the internal LoadBalancer IPs assigned to `rabbitmq-vpn` and `sqlserver-vpn` services.
 
-### 3. Deploy workloads
+### 4. Deploy workloads
 
 ```powershell
 # Set the private endpoint addresses (from Azure Local internal LBs)
-$env:RABBITMQ_PRIVATE_ENDPOINT = "10.1.0.100"  # Replace with actual LB IP
-$env:SQL_PRIVATE_ENDPOINT = "10.1.0.101"        # Replace with actual LB IP
+$env:RABBITMQ_PRIVATE_ENDPOINT = "10.10.0.100"  # Replace with actual LB IP from LocalBox
+$env:SQL_PRIVATE_ENDPOINT = "10.10.0.101"        # Replace with actual LB IP from LocalBox
 
 ./scripts/deploy-hybrid.ps1 `
   -EnvironmentName dev `
   -CloudClusterName aks-cloud `
-  -LocalClusterName aks-local `
+  -LocalClusterName localbox-aks `
   -ResourceGroup rg-dev `
+  -LocalResourceGroup rg-localbox `
   -Tag "latest"
 ```
 
-### 4. Apply Fleet placement policies
+### 5. Apply Fleet placement policies
 
 ```bash
 # Connect to Fleet hub
@@ -256,3 +285,12 @@ This branch is part of the **Azure deployment continuum learning lab**:
 3. **`local-hybrid`** — Split workloads: public cloud + on-premises (this branch)
 4. **`local-connected`** — Move entirely to Azure Local with Arc connectivity
 5. **`local-disconnected`** — Full air-gapped operation
+
+## References
+
+- [Azure Jumpstart LocalBox](https://jumpstart.azure.com/azure_jumpstart_localbox) — Deploy Azure Local without hardware
+- [LocalBox Bicep Deployment](https://jumpstart.azure.com/azure_jumpstart_localbox/deployment_az) — Step-by-step deployment guide
+- [microsoft/azure_arc](https://github.com/microsoft/azure_arc) — Source repository for Jumpstart scenarios
+- [Azure Kubernetes Fleet Manager](https://learn.microsoft.com/azure/kubernetes-fleet/) — Multi-cluster management
+- [AKS on Azure Local](https://learn.microsoft.com/azure/aks/hybrid/aks-overview) — AKS Arc documentation
+- [Azure Arc-enabled Kubernetes](https://learn.microsoft.com/azure/azure-arc/kubernetes/overview) — Arc K8s overview
