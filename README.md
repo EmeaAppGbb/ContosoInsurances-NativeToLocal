@@ -233,6 +233,8 @@ azd up
 
 ### 2. Verify the local AKS Arc cluster
 
+> ⏳ **Note:** AKS Arc cluster provisioning on Azure Local can take **60–90+ minutes** to complete. This is expected — the process downloads CBL-Mariner VM images, bootstraps the Kubernetes control plane, and provisions worker nodes on the physical hosts. Monitor progress with the command below and wait for `state: Succeeded` before proceeding.
+
 ```bash
 az aksarc show --name <local-aks-arc-name> --resource-group <local-rg> --query "{state:properties.status.currentState, provisioning:provisioningState}" -o json
 ```
