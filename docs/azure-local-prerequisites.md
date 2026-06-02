@@ -164,6 +164,7 @@ flowchart TB
 | Cannot RDP to LocalBox-Client | Enable JIT access or add NSG rule for your IP on port 3389 |
 | AKS cluster not ready | On LocalBox-Client, run `Get-AksArcCluster` to check status |
 | `kubectl` auth errors | Ensure you're logged in as a member of the Entra ID group |
+| `az aksarc create` says the logical network has no DNS server | LocalBox's `localboxcluster-InfraLNET` is an infrastructure network. Create a workload logical network on the same VM switch with DNS servers and use that network ID for the AKS Arc cluster instead. |
 | Quota errors | Request quota increase for D/E-series VMs in your region |
 
 ## Next Steps

@@ -29,10 +29,25 @@ param(
     [string]$ResourceGroup,
 
     [Parameter(Mandatory = $false)]
+    [string]$CloudResourceGroup = $ResourceGroup,
+
+    [Parameter(Mandatory = $false)]
     [string]$LocalResourceGroup = $ResourceGroup,
 
     [Parameter(Mandatory = $false)]
+    [string]$AcrLoginServer,
+
+    [Parameter(Mandatory = $false)]
+    [string]$CloudSqlConnectionString,
+
+    [Parameter(Mandatory = $false)]
+    [string]$CloudRabbitMqHostName = $env:RABBITMQ_PRIVATE_ENDPOINT,
+
+    [Parameter(Mandatory = $false)]
     [string]$Tag = "latest",
+
+    [Parameter(Mandatory = $false)]
+    [string]$ImagePullSecretName = "acr-pull",
 
     [Parameter(Mandatory = $false)]
     [switch]$UseArcProxy
@@ -51,29 +66,49 @@ Write-Host "============================================================" -Foreg
 # ---------------------------------------------------------------------------
 Write-Host "`n[1/8] Retrieving Azure resource details..." -ForegroundColor Yellow
 
-$acrName = az acr list --resource-group $ResourceGroup --query '[0].name' -o tsv
-$acrLoginServer = az acr show --name $acrName --query loginServer -o tsv
-$appInsightsCs = az monitor app-insights component show --resource-group $ResourceGroup --query '[0].connectionString' -o tsv
-$kvName = az keyvault list --resource-group $ResourceGroup --query '[0].name' -o tsv
-$rabbitmqPassword = az keyvault secret show --vault-name $kvName --name rabbitmq-password --query value -o tsv
-$sqlSaPassword = az keyvault secret show --vault-name $kvName --name sql-sa-password --query value -o tsv 2>$null
+$acrName = if ($AcrLoginServer) { ($AcrLoginServer -split '\.')[0] } else { az acr list --resource-group $CloudResourceGroup --query '[0].name' -o tsv }
+if (-not $AcrLoginServer) {
+    $AcrLoginServer = az acr show --name $acrName --query loginServer -o tsv
+}
+
+$appInsightsCs = if ($env:APPLICATIONINSIGHTS_CONNECTION_STRING) {
+    $env:APPLICATIONINSIGHTS_CONNECTION_STRING
+} else {
+    az monitor app-insights component list --resource-group $CloudResourceGroup --query '[0].connectionString' -o tsv
+}
+
+$kvName = az keyvault list --resource-group $CloudResourceGroup --query '[0].name' -o tsv 2>$null
+$rabbitmqPassword = $env:RABBITMQ_PASSWORD
+if (-not $rabbitmqPassword -and $kvName) {
+    $rabbitmqPassword = az keyvault secret show --vault-name $kvName --name rabbitmq-password --query value -o tsv 2>$null
+}
+if (-not $rabbitmqPassword) {
+    $rabbitmqPassword = 'C0nt0s0Rmq2025'
+}
+
+$sqlSaPassword = $env:SQL_SA_PASSWORD
+if (-not $sqlSaPassword -and $kvName) {
+    $sqlSaPassword = az keyvault secret show --vault-name $kvName --name sql-sa-password --query value -o tsv 2>$null
+}
 if (-not $sqlSaPassword) {
     $sqlSaPassword = [System.Guid]::NewGuid().ToString() + "!Aa1"
-    az keyvault secret set --vault-name $kvName --name sql-sa-password --value $sqlSaPassword | Out-Null
-    Write-Host "  Generated new SQL SA password and stored in Key Vault" -ForegroundColor DarkGray
+    if ($kvName) {
+        az keyvault secret set --vault-name $kvName --name sql-sa-password --value $sqlSaPassword | Out-Null
+        Write-Host "  Generated new SQL SA password and stored in Key Vault" -ForegroundColor DarkGray
+    }
 }
 
 # AGC resource ID (for Gateway API annotation)
-$agcId = az network traffic-controller list --resource-group $ResourceGroup --query '[0].id' -o tsv 2>$null
+$agcId = az resource list --resource-group $CloudResourceGroup --resource-type Microsoft.ServiceNetworking/trafficControllers --query '[0].id' -o tsv 2>$null
 
-Write-Host "  ACR: $acrLoginServer" -ForegroundColor DarkGray
+Write-Host "  ACR: $AcrLoginServer" -ForegroundColor DarkGray
 Write-Host "  AGC: $($agcId ? 'Found' : 'Not found')" -ForegroundColor DarkGray
 
 # ---------------------------------------------------------------------------
 # Deploy to Cloud AKS cluster
 # ---------------------------------------------------------------------------
 Write-Host "`n[2/8] Connecting to cloud AKS cluster..." -ForegroundColor Yellow
-az aks get-credentials --resource-group $ResourceGroup --name $CloudClusterName --overwrite-existing
+az aks get-credentials --resource-group $CloudResourceGroup --name $CloudClusterName --overwrite-existing
 
 Write-Host "`n[3/8] Deploying cloud workloads..." -ForegroundColor Yellow
 
@@ -84,10 +119,15 @@ kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/downloa
 $cloudNs = Get-Content "k8s/cloud/namespace.yaml" -Raw
 $cloudNs = $cloudNs -replace "__APPINSIGHTS_CONNECTION_STRING__", $appInsightsCs
 $cloudNs = $cloudNs -replace "__RABBITMQ_PASSWORD__", $rabbitmqPassword
-$cloudNs = $cloudNs -replace "__RABBITMQ_PRIVATE_ENDPOINT__", $env:RABBITMQ_PRIVATE_ENDPOINT
+$cloudRabbitMqHostName = if ($CloudRabbitMqHostName) { $CloudRabbitMqHostName } else { 'rabbitmq' }
+$cloudNs = $cloudNs -replace "__RABBITMQ_PRIVATE_ENDPOINT__", $cloudRabbitMqHostName
 
-# SQL connection string for cloud (points to on-prem SQL via VPN)
-$sqlCs = "Server=$($env:SQL_PRIVATE_ENDPOINT),1433;Database=insurancedb;User Id=sa;Password=$sqlSaPassword;TrustServerCertificate=true"
+# SQL connection string for cloud (falls back to cloud SQL when no private link to Azure Local exists)
+$sqlCs = if ($CloudSqlConnectionString) {
+    $CloudSqlConnectionString
+} else {
+    "Server=$($env:SQL_PRIVATE_ENDPOINT),1433;Database=insurancedb;User Id=sa;Password=$sqlSaPassword;TrustServerCertificate=true"
+}
 $cloudNs = $cloudNs -replace "__SQL_CONNECTION_STRING__", $sqlCs
 $cloudNs | kubectl apply -f - 2>&1
 
@@ -119,7 +159,7 @@ if ($UseArcProxy) {
     az connectedk8s proxy -n $LocalClusterName -g $LocalResourceGroup &
     Start-Sleep -Seconds 10
 } else {
-    az aks get-credentials --resource-group $LocalResourceGroup --name $LocalClusterName --overwrite-existing
+    az aksarc get-credentials --resource-group $LocalResourceGroup --name $LocalClusterName --overwrite-existing
 }
 
 Write-Host "`n[5/8] Deploying local workloads..." -ForegroundColor Yellow
@@ -138,6 +178,19 @@ $localNs = $localNs -replace "__BACKEND_API_AZURE_AD_CLIENT_ID__", ""
 $localNs = $localNs -replace "__BACKEND_API_AZURE_AD_AUDIENCE__", ""
 $localNs = $localNs -replace "__BACKEND_PORTAL_AZURE_AD_CLIENT_SECRET__", ""
 $localNs | kubectl apply -f - 2>&1
+
+$acrUsername = $env:ACR_USERNAME
+$acrPassword = $env:ACR_PASSWORD
+if ((-not $acrUsername -or -not $acrPassword) -and $acrName) {
+    $acrCredentials = az acr credential show --name $acrName --output json 2>$null | ConvertFrom-Json
+    if ($acrCredentials) {
+        $acrUsername = $acrCredentials.username
+        $acrPassword = $acrCredentials.passwords[0].value
+    }
+}
+if ($acrUsername -and $acrPassword) {
+    kubectl create secret docker-registry $ImagePullSecretName --namespace contoso-insurance --docker-server=$AcrLoginServer --docker-username=$acrUsername --docker-password=$acrPassword --dry-run=client -o yaml | kubectl apply -f - 2>&1 | Out-Null
+}
 
 # Deploy SQL Server
 $sqlManifest = Get-Content "k8s/local/sqlserver-deployment.yaml" -Raw
@@ -184,7 +237,7 @@ kubectl rollout status deployment/worker-claims -n contoso-insurance --timeout=1
 Write-Host "    All local deployments ready ✓" -ForegroundColor Green
 
 # Switch back to cloud cluster and verify
-az aks get-credentials --resource-group $ResourceGroup --name $CloudClusterName --overwrite-existing
+az aks get-credentials --resource-group $CloudResourceGroup --name $CloudClusterName --overwrite-existing
 Write-Host "  Cloud cluster:" -ForegroundColor DarkGray
 kubectl rollout status deployment/webfrontend -n contoso-insurance --timeout=180s 2>&1 | Out-Null
 kubectl rollout status deployment/publicapi -n contoso-insurance --timeout=180s 2>&1 | Out-Null

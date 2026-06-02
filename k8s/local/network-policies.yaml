@@ -239,6 +239,9 @@ spec:
         - podSelector:
             matchLabels:
               app: worker-projections
+        - podSelector:
+            matchLabels:
+              job-name: sqlserver-init
       ports:
         - port: 1433
           protocol: TCP
@@ -247,6 +250,35 @@ spec:
         - port: 1433
           protocol: TCP
   egress:
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-sqlserver-init
+  namespace: contoso-insurance
+spec:
+  podSelector:
+    matchLabels:
+      job-name: sqlserver-init
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress: []
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: sqlserver
+      ports:
+        - port: 1433
+          protocol: TCP
     - to:
         - namespaceSelector: {}
       ports:

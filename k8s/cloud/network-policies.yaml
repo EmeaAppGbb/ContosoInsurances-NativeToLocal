@@ -67,6 +67,21 @@ spec:
         - port: 8080
           protocol: TCP
   egress:
+    # Hybrid fallback: allow independent cloud testing with in-cluster RabbitMQ/SQL.
+    - to:
+        - podSelector:
+            matchLabels:
+              app: rabbitmq
+      ports:
+        - port: 5672
+          protocol: TCP
+    - to:
+        - podSelector:
+            matchLabels:
+              app: sqlserver
+      ports:
+        - port: 1433
+          protocol: TCP
     # Allow reaching on-prem RabbitMQ via VPN/ExpressRoute (private endpoint)
     - to:
         - ipBlock:
@@ -100,6 +115,78 @@ spec:
         - port: 443
           protocol: TCP
     # DNS
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-rabbitmq-fallback
+  namespace: contoso-insurance
+spec:
+  podSelector:
+    matchLabels:
+      app: rabbitmq
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: publicapi
+      ports:
+        - port: 5672
+          protocol: TCP
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-sqlserver-fallback
+  namespace: contoso-insurance
+spec:
+  podSelector:
+    matchLabels:
+      app: sqlserver
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: publicapi
+        - podSelector:
+            matchLabels:
+              job-name: sqlserver-init
+      ports:
+        - port: 1433
+          protocol: TCP
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-sqlserver-init
+  namespace: contoso-insurance
+spec:
+  podSelector:
+    matchLabels:
+      job-name: sqlserver-init
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress: []
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: sqlserver
+      ports:
+        - port: 1433
+          protocol: TCP
     - to:
         - namespaceSelector: {}
       ports:

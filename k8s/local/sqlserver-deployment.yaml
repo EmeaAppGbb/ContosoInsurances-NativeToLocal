@@ -30,8 +30,12 @@ spec:
       labels:
         app: sqlserver
     spec:
+      securityContext:
+        fsGroup: 10001
       containers:
         - name: sqlserver
+          securityContext:
+            runAsUser: 0
           image: mcr.microsoft.com/mssql/server:2022-latest
           ports:
             - containerPort: 1433
@@ -177,6 +181,8 @@ spec:
             - sqlserver
             - -U
             - sa
+            - -P
+            - $(SA_PASSWORD)
             - -C
             - -Q
             - "IF NOT EXISTS (SELECT * FROM sys.databases WHERE name = 'insurancedb') CREATE DATABASE insurancedb;"

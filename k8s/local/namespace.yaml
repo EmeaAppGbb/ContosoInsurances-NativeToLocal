@@ -9,6 +9,14 @@ metadata:
     contoso.io/cluster-role: local
 ---
 apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: default
+  namespace: contoso-insurance
+imagePullSecrets:
+  - name: acr-pull
+---
+apiVersion: v1
 kind: ConfigMap
 metadata:
   name: contoso-config

@@ -24,6 +24,8 @@ spec:
       labels:
         app: publicapi
     spec:
+      nodeSelector:
+        workload: contoso-insurance
       containers:
         - name: publicapi
           image: __ACR_LOGIN_SERVER__/contoso-insurance/publicapi:__TAG__

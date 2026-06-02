@@ -23,6 +23,8 @@ spec:
       labels:
         app: webfrontend
     spec:
+      nodeSelector:
+        workload: contoso-insurance
       containers:
         - name: webfrontend
           image: __ACR_LOGIN_SERVER__/contoso-insurance/webfrontend:__TAG__
