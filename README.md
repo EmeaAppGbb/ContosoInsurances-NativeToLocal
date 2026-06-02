@@ -1,221 +1,290 @@
 # Contoso Insurance
 
-Contoso Insurance is a **.NET 10 Aspire enterprise application** and **learning lab** for moving a cloud-native system across the deployment continuum: **Azure cloud -> Azure Local connected -> Azure Local disconnected**.
+Contoso Insurance is a **.NET 10 Aspire enterprise application** and **learning lab** for moving a cloud-native system across the Azure deployment continuum: **Azure public cloud -> sovereign cloud -> hybrid cloud + Azure Local -> Azure Local connected -> Azure Local disconnected**.
 
-This `main` branch represents the **cloud deployment baseline**: an AKS-hosted application using AGC for ingress, Azure SQL Database for persistence, RabbitMQ for event-driven workflows, and a split architecture that cleanly separates public and private surfaces.
+This `local-hybrid` branch represents the **hybrid deployment**: customer-facing workloads stay on **cloud AKS**, sensitive services move to **Azure Local AKS Arc**, and **Azure Kubernetes Fleet Manager** provides a unified management plane across both clusters.
 
 ![Contoso Insurance homepage](docs/screenshots/homepage.png)
 
-## Why this repository exists
+## Why this branch exists
 
-This solution is designed to help teams understand how to:
+Organizations with data sovereignty, compliance, or latency requirements often need a split architecture where:
 
-- build a modern distributed application with **.NET Aspire**
-- run it on **Azure Kubernetes Service (AKS)**
-- expose only the right services to the internet through **Application Gateway for Containers (AGC)**
-- use **event-driven messaging** with RabbitMQ and background workers
-- prepare the application for a **hybrid split** where the public surface remains in Azure and the private surface moves to **Azure Local**
+- customer-facing services remain in Azure for internet reach and elasticity
+- sensitive processing and storage move on-premises to Azure Local
+- platform teams still manage both clusters as one application estate
+
+This branch demonstrates that move without changing application code.
+
+## Azure deployment continuum
+
+The repository models a progressive move from fully public cloud to fully local deployment.
+
+```mermaid
+flowchart LR
+    Main["main\nPublic Cloud\nAKS + AGC + Azure SQL + RabbitMQ"]
+    Sovereign["sovereign\nSovereign Cloud\nGermany region"]
+    Hybrid["local-hybrid\nHybrid Cloud + Local\nCloud AKS + Azure Local AKS Arc"]
+    Connected["local-connected\nAzure Local Connected\nAKS Arc on LocalBox"]
+    Future["local-disconnected\nFuture\nAzure Local Disconnected"]
+
+    Main --> Sovereign --> Hybrid --> Connected --> Future
+```
 
 ## Branch strategy
 
-| Branch | Target | Internet |
+| Branch | What it represents | Deployment style |
 | --- | --- | --- |
-| `main` | Azure (AKS) | Yes |
-| `local-connected` | Azure Local Connected | Partial |
-| `local-disconnected` | Azure Local Disconnected | No |
+| `main` | Azure public cloud baseline | `azd up` |
+| `sovereign` | Sovereign cloud deployment in Germany | `azd up` |
+| `local-hybrid` | Split deployment across cloud AKS and Azure Local AKS Arc | PowerShell deployment script |
+| `local-connected` | Azure Local connected deployment on Jumpstart LocalBox | PowerShell deployment script |
+| `local-disconnected` | Future air-gapped Azure Local target | Future/offline workflow |
 
-## Deployment baseline (`main`)
+## Continuum branches
 
-The main branch models the production cloud deployment:
+### `main` — Public Cloud
 
-- **Platform:** AKS
-- **Ingress:** AGC (Application Gateway for Containers) with **Gateway API** + `HTTPRoute`
-- **Database:** Azure SQL Database (**serverless Gen5**)
-- **Messaging:** RabbitMQ running in AKS as a **StatefulSet**
-- **Frontend URL:** http://bxf5ejdjesbkhrcf.fz45.alb.azure.com
-- **Orchestration:** .NET Aspire AppHost for local orchestration and developer experience
-- **Infrastructure as Code:** Bicep + Azure Developer CLI (`azd`)
+**What it deploys**
+- Web frontend, public API, backend services, workers, RabbitMQ, and Azure SQL on Azure-hosted infrastructure
+- AGC ingress on AKS
 
-## Application surfaces
+**Architecture overview**
+- Single-cluster cloud baseline for standard Azure regions
+- Managed Azure SQL data plane
+- Best starting point for the continuum
 
-Contoso Insurance uses a **two-surface architecture**.
+**How to deploy**
+```bash
+azd up
+```
 
-### Public surface
-Public-side services that handle customer traffic and event submission:
+### `sovereign` — Sovereign Cloud
 
-- **ContosoInsurance.Web** - public Blazor Server frontend
-- **ContosoInsurance.Api** - customer-facing public API
-- **RabbitMQ** - messaging backbone that receives events emitted from the public side
+**What it deploys**
+- The same logical application topology as `main`
+- Deployed into a sovereign Germany region for compliance and residency needs
 
-### Private surface
-Internal services used by operations staff and business workflows:
+**Architecture overview**
+- Cloud-hosted deployment with regional sovereignty constraints
+- Same service boundaries, different regional control plane and placement
 
-- **ContosoInsurance.BackendPortal** - internal Blazor Server portal secured with **Microsoft Entra ID**
-- **ContosoInsurance.BackendApi** - private workflow API for the portal
-- **ContosoInsurance.Worker.Claims** - claims processing worker
-- **ContosoInsurance.Worker.Quotes** - quote processing worker
-- **ContosoInsurance.Worker.Projections** - projection and synchronization worker
+**How to deploy**
+```bash
+git checkout sovereign
+azd env new contoso-sovereign
+azd up
+```
 
-This split is intentional: it supports the lab's target architecture where the **public surface stays in the cloud** while the **private surface can move to Azure Local**.
+### `local-hybrid` — Hybrid Cloud + Azure Local
 
-## Architecture overview
+**What it deploys**
+- **Cloud side:** frontend and public API on cloud AKS with AGC ingress
+- **Local side:** backend portal, backend API, workers, SQL Server, and RabbitMQ on AKS Arc in Azure Local
+- **Fleet Manager:** unified management across both clusters
+
+**Architecture overview**
+- Internet-facing traffic stays in Azure
+- Sensitive workflows and data stay on Azure Local
+- Fleet placement and policy keep workloads on the correct side of the boundary
 
 ```mermaid
-graph TD
-    Internet[Internet users]
-    AGC[AGC ingress\nGateway API + HTTPRoute]
-    Web[Public Blazor Server\nContosoInsurance.Web]
-    PublicApi[Public API\nContosoInsurance.Api]
-    Rabbit[RabbitMQ\nStatefulSet on AKS]
-    Portal[Backend Portal\nContosoInsurance.BackendPortal\nEntra ID]
-    BackendApi[Backend API\nContosoInsurance.BackendApi]
-    Claims[Worker.Claims]
-    Quotes[Worker.Quotes]
-    Projections[Worker.Projections]
-    Sql[Azure SQL Database\nServerless Gen5]
+flowchart TB
+    Browser[Customer Browser] --> AGC[AGC ingress on cloud AKS]
+    AGC --> Web[Web Frontend]
+    Web --> PublicApi[Public API]
 
-    Internet --> AGC
-    AGC --> Web
-    Web --> PublicApi
-    PublicApi --> Sql
-    PublicApi --> Rabbit
+    subgraph Cloud[Azure Public Cloud]
+        Web
+        PublicApi
+    end
+
+    subgraph Local[Azure Local AKS Arc]
+        Portal[Backend Portal]
+        BackendApi[Backend API]
+        Workers[Claims, Quotes, Projections Workers]
+        Sql[(SQL Server)]
+        Rabbit[RabbitMQ]
+    end
+
+    PublicApi -. private connectivity .-> Rabbit
+    PublicApi -. private connectivity .-> Sql
     Portal --> BackendApi
-    BackendApi --> Sql
     BackendApi --> Rabbit
-    Rabbit --> Claims
-    Rabbit --> Quotes
-    Claims --> Sql
-    Quotes --> Sql
-    Claims --> Projections
-    Quotes --> Projections
-    Projections --> Sql
-    BackendApi --> Projections
+    BackendApi --> Sql
+    Workers --> Rabbit
+    Workers --> Sql
+    Fleet[Fleet Manager] -.-> Cloud
+    Fleet -.-> Local
 ```
 
-## End-to-end workflow
+**Cross-cluster communication**
+- In the intended design, the cloud public API reaches local RabbitMQ and SQL Server through **private networking** such as **VPN** or **ExpressRoute**.
+- In the **Jumpstart LocalBox sandbox**, that private bridge may not exist by default. Without it, the cloud cluster cannot directly reach the local data plane, so hybrid validation is limited until networking is configured.
+- The backend portal and backend API remain local-only and are never exposed to the public internet.
 
-1. A customer uses the **public web frontend**.
-2. The frontend calls the **public API**.
-3. Claims and quotes submitted on the public surface are published as **events to RabbitMQ**.
-4. The **Claims** and **Quotes** workers process those events.
-5. The **Projections** worker publishes updated read models / projections back into the system.
-6. Operations staff use the **Backend Portal** and **Backend API** to manage internal workflows and view operational state.
+**How to deploy**
+```powershell
+git checkout local-hybrid
+./scripts/deploy-hybrid.ps1 `
+  -EnvironmentName <env> `
+  -CloudClusterName <cloud-aks-name> `
+  -CloudResourceGroup <cloud-rg> `
+  -LocalClusterName <local-aks-arc-name> `
+  -LocalResourceGroup <local-rg> `
+  -SubscriptionId <subscription-id> `
+  -AcrLoginServer <acr>.azurecr.io `
+  -CloudRabbitMqHostName <local-rabbitmq-private-endpoint> `
+  -CloudSqlPrivateEndpoint <local-sql-private-endpoint> `
+  -Tag <image-tag>
+```
 
-In short:
+### `local-connected` — Azure Local Connected
 
-**public request -> public API -> RabbitMQ -> workers -> projections -> private operations experience**
+**What it deploys**
+- The full application stack onto AKS Arc running on Jumpstart LocalBox
+- Azure-connected operations through Arc-enabled services
 
-## Service topology
+**Architecture overview**
+- Entire workload footprint runs on Azure Local
+- Azure remains the connected control plane for Arc, monitoring, identity, and registry access
+- This is the final connected step before a disconnected edge model
 
-| Service | Role | Surface |
+**How to deploy**
+```powershell
+git checkout local-connected
+./scripts/deploy-local-connected.ps1 `
+  -ResourceGroup <local-rg> `
+  -ClusterName <local-aks-arc-name> `
+  -AcrLoginServer <acr>.azurecr.io `
+  -Tag <image-tag>
+```
+
+See [docs/local-connected-deployment.md](docs/local-connected-deployment.md) for the full walkthrough.
+
+### `local-disconnected` — Future Azure Local Disconnected
+
+**What it deploys**
+- A future fully local, air-gapped version of Contoso Insurance
+
+**Architecture overview**
+- All runtime dependencies stay on-premises
+- No required ongoing Azure control-plane connectivity
+- Intended as the last stage of the continuum
+
+**How to deploy**
+- Not implemented yet; this branch is reserved for the future disconnected workflow.
+
+## Hybrid workload placement
+
+### Cloud AKS cluster
+
+| Service | Role | Why cloud |
 | --- | --- | --- |
-| `ContosoInsurance.AppHost` | .NET Aspire orchestrator for local development | Dev/orchestration |
-| `ContosoInsurance.Web` | Public customer-facing Blazor Server app | Public |
-| `ContosoInsurance.Api` | Public API serving the web frontend | Public |
-| `RabbitMQ` | Event-driven messaging backbone | Shared boundary |
-| `ContosoInsurance.BackendPortal` | Internal operations portal | Private |
-| `ContosoInsurance.BackendApi` | Internal workflow API for the portal | Private |
-| `ContosoInsurance.Worker.Claims` | Claims event processor | Private |
-| `ContosoInsurance.Worker.Quotes` | Quotes event processor | Private |
-| `ContosoInsurance.Worker.Projections` | Projection/read-model synchronization | Private |
-| `ContosoInsurance.Data` | EF Core data layer | Shared library |
-| `ContosoInsurance.Messaging.Contracts` | Shared event/message contracts | Shared library |
-| `ContosoInsurance.ServiceDefaults` | Aspire service defaults and shared config | Shared library |
+| Web Frontend | Customer-facing UI | Internet reach and scale |
+| Public API | Intake layer | Public entry point with AGC ingress |
+| AGC | External ingress | Azure-managed L7 entry path |
 
-## Repository structure
+### Azure Local AKS Arc cluster
 
-```text
-src/
-├── ContosoInsurance.AppHost/             # .NET Aspire orchestrator
-├── ContosoInsurance.Web/                 # Public Blazor frontend
-├── ContosoInsurance.Api/                 # Public API (customer-facing)
-├── ContosoInsurance.BackendPortal/       # Authenticated ops portal (Blazor)
-├── ContosoInsurance.BackendApi/          # Private workflow API
-├── ContosoInsurance.Worker.Claims/       # Claims processing worker
-├── ContosoInsurance.Worker.Quotes/       # Quote processing worker
-├── ContosoInsurance.Worker.Projections/  # Projection sync worker
-├── ContosoInsurance.Data/                # EF Core data layer
-├── ContosoInsurance.Messaging.Contracts/ # Shared message types
-└── ContosoInsurance.ServiceDefaults/     # Aspire service defaults
+| Service | Role | Why local |
+| --- | --- | --- |
+| Backend Portal | Staff-only UI | Internal-only access |
+| Backend API | Sensitive business logic | Processes protected data |
+| Workers | Claims, quotes, projections | Data gravity and local processing |
+| RabbitMQ | Messaging backbone | Keeps sensitive payloads local |
+| SQL Server | Operational data store | Keeps PII and line-of-business data on-prem |
 
-tests/
-├── ContosoInsurance.Api.Tests/
-├── ContosoInsurance.Data.Tests/
-├── ContosoInsurance.Web.Tests/
-├── ContosoInsurance.Worker.Tests/
-├── ContosoInsurance.AppHost.Tests/
-└── ContosoInsurance.E2E/                 # Playwright E2E tests
+## Fleet Manager
 
-k8s/                                      # Kubernetes manifests
-scripts/                                  # Deployment scripts
-infra/                                    # Bicep IaC (azd)
-docs/screenshots/                         # App screenshots
-```
+[Azure Kubernetes Fleet Manager](https://learn.microsoft.com/azure/kubernetes-fleet/) provides:
 
-## Deployment model
+- unified management for cloud and local clusters
+- placement control through `ClusterResourcePlacement`
+- coordinated policy and lifecycle management across the fleet
 
-### Azure deployment
+## Prerequisites
 
-Provision infrastructure and deploy with **Azure Developer CLI**:
+### 1. Azure Local — Jumpstart LocalBox
+
+> **⚠️ Azure Local must exist before deploying this branch.**
+
+Use **[Jumpstart LocalBox](https://jumpstart.azure.com/azure_jumpstart_localbox)** to provision the Azure Local sandbox and AKS Arc environment.
+
+Helpful references:
+- [Azure Local prerequisites](docs/azure-local-prerequisites.md)
+- [LocalBox Bicep deployment](https://jumpstart.azure.com/azure_jumpstart_localbox/deployment_az)
+- [microsoft/azure_arc](https://github.com/microsoft/azure_arc)
+
+### 2. Additional prerequisites
+
+- Azure subscription access for AKS, ACR, Fleet Manager, and Azure Local resources
+- Private connectivity between the cloud VNet and the Azure Local logical network if you want true end-to-end hybrid traffic
+- Azure CLI with `aksarc`, `connectedk8s`, and `fleet` extensions
+- `kubectl` access to both clusters
+
+## Deployment flow for this branch
+
+### 1. Provision the cloud side
 
 ```bash
 azd up
 ```
 
-Key deployment assets:
+### 2. Verify the local AKS Arc cluster
 
-- `infra/` - Bicep templates used by `azd`
-- `scripts/deploy-all.ps1` - publishes containers and deploys Kubernetes manifests
-- `k8s/` - workload manifests for web, APIs, RabbitMQ, and workers
+> ⏳ **Note:** AKS Arc cluster provisioning on Azure Local can take **60–90+ minutes** to complete. This is expected — the process downloads CBL-Mariner VM images, bootstraps the Kubernetes control plane, and provisions worker nodes on the physical hosts. Monitor progress with the command below and wait for `state: Succeeded` before proceeding.
 
-AGC provides the **Layer 7 ingress path** using **Gateway API** and `HTTPRoute`, giving the application a modern ingress layer aligned with the cloud-first `main` branch architecture.
+```bash
+az aksarc show --name <local-aks-arc-name> --resource-group <local-rg> --query "{state:properties.status.currentState, provisioning:provisioningState}" -o json
+```
+
+### 3. Deploy the hybrid workloads
+
+```powershell
+./scripts/deploy-hybrid.ps1 `
+  -EnvironmentName dev `
+  -CloudClusterName aks-zyvt5wdpz6bug `
+  -CloudResourceGroup rg-contoso-cloud `
+  -LocalClusterName contoso-aks-local `
+  -LocalResourceGroup rg-azure-local `
+  -SubscriptionId 7ffff279-b86c-4798-821a-1a70fc49e23b `
+  -AcrLoginServer crzyvt5wdpz6bug.azurecr.io `
+  -CloudRabbitMqHostName <rabbitmq-private-ip-or-dns> `
+  -CloudSqlPrivateEndpoint <sql-private-ip-or-dns> `
+  -Tag hybrid-v1
+```
+
+If the local cluster does not exist yet, the script can also create it when you provide the custom location and logical network inputs via `-CreateLocalCluster`.
+
+## Repository structure
+
+```text
+k8s/
+├── cloud/   # Frontend + public API manifests
+├── local/   # Backend portal, backend API, workers, SQL Server, RabbitMQ
+├── fleet/   # Fleet Manager placement manifests
+infra/       # azd / Bicep deployment assets
+scripts/     # Deployment automation
+```
 
 ## Running locally
-
-Run the distributed application with Aspire:
 
 ```bash
 dotnet run --project src/ContosoInsurance.AppHost
 ```
 
-Local development uses containers for supporting services:
-
-- **SQL Server** runs as a container
-- **RabbitMQ** runs as a container
-- Aspire wires service discovery, startup ordering, and local endpoints automatically
-
 ## Testing
-
-Run the existing test suites from the repository root:
 
 ```bash
 dotnet test ContosoInsurance.slnx
 ```
 
-The repository also includes **Playwright end-to-end tests** in `tests/ContosoInsurance.E2E/`.
+## References
 
-## Screenshots
-
-Application screenshots are available in `docs/screenshots/`, including:
-
-- `homepage.png`
-- `customers.png`
-- `policies.png`
-- `claims.png`
-- `quotes.png`
-- `dashboard.png`
-- `backend-portal-dashboard.png`
-- `backend-portal-claims.png`
-- `backend-portal-quotes.png`
-- `backend-portal-queue.png`
-
-## Learning lab focus
-
-Contoso Insurance is intentionally more than an app sample. It is a **reference implementation for hybrid modernization**:
-
-- start with a cloud-native Azure deployment
-- preserve clear public/private boundaries
-- move private capabilities closer to the edge with Azure Local
-- continue toward disconnected operation when required
-
-That makes this repository useful both for **application teams** learning .NET Aspire and for **platform teams** planning cloud-to-edge transitions.
+- [Azure Jumpstart LocalBox](https://jumpstart.azure.com/azure_jumpstart_localbox)
+- [Azure Local prerequisites](docs/azure-local-prerequisites.md)
+- [Local-connected deployment guide](docs/local-connected-deployment.md)
+- [Azure Kubernetes Fleet Manager](https://learn.microsoft.com/azure/kubernetes-fleet/)
+- [AKS on Azure Local](https://learn.microsoft.com/azure/aks/hybrid/aks-overview)
+- [Azure Arc-enabled Kubernetes](https://learn.microsoft.com/azure/azure-arc/kubernetes/overview)
